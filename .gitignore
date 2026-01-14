@@ -1,0 +1,8 @@
+.env
+log/
+node_modules/
+venv/
+backups/
+borg-repo/
+supabase/
+*.log

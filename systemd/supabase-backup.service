@@ -1,0 +1,16 @@
+[Unit]
+Description=Supabase Daily Backup Service
+After=network.target
+
+[Service]
+Type=oneshot
+# Update this to your project directory
+WorkingDirectory=/home/user/repos/supabase-backup
+# Redirect stdout and stderr to the log file
+StandardOutput=append:/var/log/supabase-backup.log
+StandardError=append:/var/log/supabase-backup.log
+# Run the script
+ExecStart=/bin/bash /home/user/repos/supabase-backup/backup.sh
+
+[Install]
+WantedBy=multi-user.target
