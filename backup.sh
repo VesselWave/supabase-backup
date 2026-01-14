@@ -15,6 +15,10 @@ else
     exit 1
 fi
 
+# Borg configuration for non-interactive use
+export BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes
+export BORG_RELOCATED_REPO_ACCESS_IS_OK=yes
+
 # Configuration
 # Expand variables like $HOME or ~ if they exist in the strings
 LOCAL_BACKUP_DIR=$(eval echo "${LOCAL_BACKUP_DIR:-./backups}")
