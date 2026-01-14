@@ -64,7 +64,7 @@ sudo systemctl enable --now supabase-backup.timer
 
 ## Structure
 - `backup.sh`: Main orchestration script.
-- `backup_db.py`: Executes `supabase db dump` for roles, schema, and data.
+- `dump_db.py`: Executes `supabase db dump` for roles, schema, and data.
 - `sync_storage.py`: Handles S3 synchronization using rclone.
 - `systemd/`: Contains system integration configurations: `supabase-backup.service`, `supabase-backup.timer`, and logrotate config.
 - `venv/`: Python virtual environment.

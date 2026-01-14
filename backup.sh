@@ -48,7 +48,7 @@ mkdir -p "$DUMP_DIR"
 
 # 3. Database Backup (using Supabase CLI via Python script)
 echo "Dumping database..."
-$PYTHON_EXEC backup_db.py
+$PYTHON_EXEC dump_db.py
 
 # 4. Storage Sync (Python script / rclone)
 echo "Syncing storage blocks..."
