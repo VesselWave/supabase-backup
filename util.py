@@ -34,3 +34,21 @@ def get_env_var(key, required=True):
         print(f"Error: {key} must be set.")
         sys.exit(1)
     return val
+
+def get_db_url(prefix="", required=True):
+    """Constructs the database URL from SUPABASE_PROJECT_REF and SUPABASE_DB_PASSWORD."""
+    # Derived DB URL if explicitly provided
+    explicit_url = os.getenv(f"{prefix}SUPABASE_DB_URL")
+    if explicit_url:
+        return os.path.expandvars(explicit_url)
+    
+    ref = os.getenv(f"{prefix}SUPABASE_PROJECT_REF")
+    password = os.getenv(f"{prefix}SUPABASE_DB_PASSWORD")
+    
+    if not ref or not password:
+        if required:
+            print(f"Error: {prefix}SUPABASE_PROJECT_REF and {prefix}SUPABASE_DB_PASSWORD must be set if {prefix}SUPABASE_DB_URL is missing.")
+            sys.exit(1)
+        return None
+    
+    return f"postgresql://postgres:{password}@db.{ref}.supabase.co:5432/postgres"

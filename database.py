@@ -8,7 +8,7 @@ from util import run_command, get_env_var, check_tool
 
 def backup():
     project_ref = get_env_var("SUPABASE_PROJECT_REF")
-    access_token = get_env_var("SUPABASE_ACCESS_TOKEN")
+    access_token = get_env_var("SUPABASE_ACCESS_TOKEN", required=False)
     db_password = get_env_var("SUPABASE_DB_PASSWORD", required=False)
     local_backup_dir = os.path.expanduser(get_env_var("LOCAL_BACKUP_DIR", required=False) or "./backups")
 
@@ -18,7 +18,8 @@ def backup():
     env = os.environ.copy()
     node_bin = os.path.join(os.getcwd(), "node_modules", ".bin")
     env["PATH"] = f"{node_bin}{os.pathsep}{env.get('PATH', '')}"
-    env["SUPABASE_ACCESS_TOKEN"] = access_token
+    if access_token:
+        env["SUPABASE_ACCESS_TOKEN"] = access_token
 
     print(f"Starting database dump for project {project_ref}...")
 
@@ -49,66 +50,68 @@ def restore():
     # Credentials for the TEST database
     db_url = get_env_var("TEST_SUPABASE_DB_URL")
     
-    # Credentials and Ref for Link/Reset
-    project_ref = get_env_var("TEST_SUPABASE_PROJECT_REF")
-    access_token = get_env_var("TEST_SUPABASE_ACCESS_TOKEN")
-
     local_backup_dir = os.path.expanduser(get_env_var("LOCAL_BACKUP_DIR", required=False) or "./backups")
-    
     source_dir = os.path.join(local_backup_dir, "database")
+
     if not os.path.isdir(source_dir):
         print(f"Error: Source directory {source_dir} does not exist.")
         sys.exit(1)
 
     print(f"Starting database restore to TEST database...")
 
-    # Setup Env for tools
-    env = os.environ.copy()
-    node_bin = os.path.join(os.getcwd(), "node_modules", ".bin")
-    env["PATH"] = f"{node_bin}{os.pathsep}{env.get('PATH', '')}"
-    env["SUPABASE_ACCESS_TOKEN"] = access_token # Ensure we use the TEST token
-
-    # Check for Supabase CLI
-    check_tool("supabase", "Error: 'supabase' CLI not found.", path=env["PATH"])
-
-    # Link to Test Project
-    print(f"Linking to project {project_ref}...")
-    link_cmd = f"supabase link --project-ref {project_ref}"
-    
-    if not run_command(link_cmd, env=env):
-        sys.exit(1)
-
-    # Reset Database
-    print("Resetting database...")
-    if not run_command("supabase db reset --linked --yes", env=env):
-        sys.exit(1)
-
     # psql is required
     check_tool("psql", "Error: 'psql' is required but not installed.")
 
-    # Order matters: roles -> schema -> data
-    files = ["roles.sql", "schema.sql", "data.sql"]
+    roles_path = os.path.join(source_dir, "roles.sql")
+    schema_path = os.path.join(source_dir, "schema.sql")
+    data_path = os.path.join(source_dir, "data.sql")
     
-    for f in files:
-        file_path = os.path.join(source_dir, f)
-        if not os.path.exists(file_path):
-            print(f"Warning: File {file_path} not found. Skipping.")
-            continue
-            
-        print(f"Restoring {f}...")
-        # Use ON_ERROR_STOP=1 to fail fast or remove it to permit loose failures? 
-        # Usually for restoration we might want to see errors but continue if possible for roles/duplicates, 
-        # but for schema it should probably stop. 
-        # For now, let's keep it simple and just run it. 
-        # We piped to psql in previous conversations.
-        
-        # NOTE: data.sql uses COPY which requires input. 
-        # roles.sql and schema.sql are normal SQL.
-        
-        cmd = f"psql \"{db_url}\" -f \"{file_path}\""
-        if not run_command(cmd):
-            print(f"Warning: Restore of {f} had errors.")
-            # We don't exit here because roles might fail if they exist, etc.
+    # Construct the single transaction command as per Supabase docs
+    # psql \
+    #   --single-transaction \
+    #   --variable ON_ERROR_STOP=1 \
+    #   --file roles.sql \
+    #   --file schema.sql \
+    #   --command 'SET session_replication_role = replica' \
+    #   --file data.sql \
+    #   --dbname [CONNECTION_STRING]
+
+    cmd = ["psql", "--single-transaction", "--variable", "ON_ERROR_STOP=1"]
+    
+    if os.path.exists(roles_path):
+        cmd.extend(["--file", roles_path])
+    else:
+        print(f"Warning: {roles_path} not found. Skipping.")
+
+    if os.path.exists(schema_path):
+        cmd.extend(["--file", schema_path])
+    else:
+        print(f"Warning: {schema_path} not found. Skipping.")
+
+    # Set session_replication_role = replica to disable triggers/FK checks during data load
+    cmd.extend(["--command", "SET session_replication_role = replica"])
+
+    if os.path.exists(data_path):
+        cmd.extend(["--file", data_path])
+    else:
+        print(f"Warning: {data_path} not found. Skipping.")
+
+    cmd.extend(["--dbname", db_url])
+
+    print("Executing restore command...")
+    # Masking DB URL for print if needed, but run_command prints it. 
+    # run_command will print the command, so be careful with passwords. 
+    # Current run_command implementation just runs shell=True. 
+    # We should probably pass list to subprocess.run for safety if we change util, 
+    # but existing util.run_command expects string for shell=True usually?
+    # util.run_command: subprocess.run(command, shell=True...)
+    # So we need to join the list into a string.
+    
+    cmd_str = " ".join([f'"{c}"' if " " in c or c.startswith("postgresql://") else c for c in cmd])
+    
+    if not run_command(cmd_str):
+        print("Error: Restore failed.")
+        sys.exit(1)
 
     print("Database restore completed.")
 
