@@ -6,3 +6,4 @@ backups/
 borg-repo/
 supabase/
 *.log
+__pycache__

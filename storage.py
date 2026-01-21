@@ -4,27 +4,9 @@ import sys
 import argparse
 from dotenv import load_dotenv
 
-def run_command(command, env=None):
-    """Executes a shell command and exits on failure."""
-    print(f"Executing: {command}")
-    result = subprocess.run(command, shell=True, env=env)
-    if result.returncode != 0:
-        print(f"Error: Command failed with return code {result.returncode}")
-        return False
-    return True
+from util import run_command, get_env_var, check_tool
 
-def get_env_var(key, required=True):
-    val = os.path.expandvars(os.getenv(key, ""))
-    if required and not val:
-        print(f"Error: {key} must be set.")
-        sys.exit(1)
-    return val
 
-def check_rclone():
-    import shutil
-    if not shutil.which("rclone"):
-        print("Error: 'rclone' CLI not found. Please install rclone.")
-        sys.exit(1)
 
 def backup():
     project_ref = get_env_var("SUPABASE_PROJECT_REF")
@@ -48,7 +30,7 @@ def backup():
     rclone_env["RCLONE_CONFIG"] = "/dev/null"
 
     print(f"Syncing S3 storage for project {project_ref}...")
-    check_rclone()
+    check_tool("rclone", "Error: 'rclone' CLI not found. Please install rclone.")
     
     # Sync from S3 (remote) to Local
     if not run_command(f"rclone sync supabases3: {target_dir} --progress", env=rclone_env):
@@ -71,7 +53,7 @@ def restore():
         sys.exit(1)
         
     print(f"Syncing local storage to TEST S3 (tests3:TEST)...")
-    check_rclone()
+    check_tool("rclone", "Error: 'rclone' CLI not found. Please install rclone.")
 
     # Configure rclone env for restore (Local -> TEST S3)
     rclone_env = os.environ.copy()

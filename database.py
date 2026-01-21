@@ -4,28 +4,7 @@ import sys
 import argparse
 from dotenv import load_dotenv
 
-def run_command(command, env=None, capture=False):
-    """Executes a shell command and exits on failure."""
-    print(f"Executing: {command}")
-    if capture:
-        result = subprocess.run(command, shell=True, env=env, capture_output=True, text=True)
-    else:
-        result = subprocess.run(command, shell=True, env=env)
-    
-    if result.returncode != 0:
-        print(f"Error: Command failed with return code {result.returncode}")
-        if capture:
-            print(f"Stdout: {result.stdout}")
-            print(f"Stderr: {result.stderr}")
-        return False
-    return True
-
-def get_env_var(key, required=True):
-    val = os.path.expandvars(os.getenv(key, ""))
-    if required and not val:
-        print(f"Error: {key} must be set.")
-        sys.exit(1)
-    return val
+from util import run_command, get_env_var, check_tool
 
 def backup():
     project_ref = get_env_var("SUPABASE_PROJECT_REF")
@@ -43,10 +22,7 @@ def backup():
 
     print(f"Starting database dump for project {project_ref}...")
 
-    import shutil
-    if not shutil.which("supabase", path=env["PATH"]):
-        print("Error: 'supabase' CLI not found. Please run 'npm install supabase' or ensure it is in your PATH.")
-        sys.exit(1)
+    check_tool("supabase", "Error: 'supabase' CLI not found. Please run 'npm install supabase' or ensure it is in your PATH.", path=env["PATH"])
 
     link_cmd = f"supabase link --project-ref {project_ref}"
     if db_password:
@@ -82,10 +58,7 @@ def restore():
     print(f"Starting database restore to TEST database...")
 
     # psql is required
-    import shutil
-    if not shutil.which("psql"):
-        print("Error: 'psql' is required but not installed.")
-        sys.exit(1)
+    check_tool("psql", "Error: 'psql' is required but not installed.")
 
     # Order matters: roles -> schema -> data
     files = ["roles.sql", "schema.sql", "data.sql"]
