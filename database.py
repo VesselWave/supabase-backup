@@ -48,6 +48,11 @@ def backup():
 def restore():
     # Credentials for the TEST database
     db_url = get_env_var("TEST_SUPABASE_DB_URL")
+    
+    # Credentials and Ref for Link/Reset
+    project_ref = get_env_var("TEST_SUPABASE_PROJECT_REF")
+    access_token = get_env_var("TEST_SUPABASE_ACCESS_TOKEN")
+
     local_backup_dir = os.path.expanduser(get_env_var("LOCAL_BACKUP_DIR", required=False) or "./backups")
     
     source_dir = os.path.join(local_backup_dir, "database")
@@ -56,6 +61,27 @@ def restore():
         sys.exit(1)
 
     print(f"Starting database restore to TEST database...")
+
+    # Setup Env for tools
+    env = os.environ.copy()
+    node_bin = os.path.join(os.getcwd(), "node_modules", ".bin")
+    env["PATH"] = f"{node_bin}{os.pathsep}{env.get('PATH', '')}"
+    env["SUPABASE_ACCESS_TOKEN"] = access_token # Ensure we use the TEST token
+
+    # Check for Supabase CLI
+    check_tool("supabase", "Error: 'supabase' CLI not found.", path=env["PATH"])
+
+    # Link to Test Project
+    print(f"Linking to project {project_ref}...")
+    link_cmd = f"supabase link --project-ref {project_ref}"
+    
+    if not run_command(link_cmd, env=env):
+        sys.exit(1)
+
+    # Reset Database
+    print("Resetting database...")
+    if not run_command("supabase db reset --linked --yes", env=env):
+        sys.exit(1)
 
     # psql is required
     check_tool("psql", "Error: 'psql' is required but not installed.")
