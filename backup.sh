@@ -52,11 +52,11 @@ mkdir -p "$DUMP_DIR"
 
 # 3. Database Backup (using Supabase CLI via Python script)
 echo "Dumping database..."
-$PYTHON_EXEC dump_db.py
+$PYTHON_EXEC database.py backup
 
 # 4. Storage Sync (Python script / rclone)
 echo "Syncing storage blocks..."
-$PYTHON_EXEC sync_storage.py
+$PYTHON_EXEC storage.py backup
 
 # 5. Borg Backup
 echo "Starting Borg backup..."

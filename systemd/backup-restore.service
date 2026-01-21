@@ -1,0 +1,10 @@
+[Unit]
+Description=Supabase Restore to Test Environment
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/user/repos/supabase-backup/restore.sh
+WorkingDirectory=/home/user/repos/supabase-backup
+StandardOutput=append:/var/log/supabase-restore.log
+StandardError=append:/var/log/supabase-restore.log

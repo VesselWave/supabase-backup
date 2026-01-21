@@ -1,0 +1,9 @@
+[Unit]
+Description=Weekly Timer for Supabase Restore
+
+[Timer]
+OnCalendar=weekly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
