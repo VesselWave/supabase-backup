@@ -27,7 +27,7 @@ if [ ! -d "$LOCAL_BACKUP_DIR" ]; then
 fi
 
 # Check dependencies
-command -v rclone >/dev/null 2>&1 || { echo >&2 "Error: 'rclone' is required but not installed. Aborting."; exit 1; }
+# (No additional CLI dependencies for restore)
 
 echo "--- Starting Supabase Restore to TEST: $(date) ---"
 

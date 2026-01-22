@@ -32,7 +32,6 @@ VENV_PATH="./venv"
 mkdir -p "$LOCAL_BACKUP_DIR"
 
 # Check dependencies
-command -v rclone >/dev/null 2>&1 || { echo >&2 "Error: 'rclone' is required but not installed. Aborting."; exit 1; }
 command -v borg >/dev/null 2>&1 || { echo >&2 "Error: 'borg' is required but not installed. Aborting."; exit 1; }
 
 echo "--- Starting Supabase Backup: $TIMESTAMP ---"
