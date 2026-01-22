@@ -199,19 +199,18 @@ def backup():
 
 def restore():
     # Credentials for the TEST database
-    db_url = get_env_var("TEST_SUPABASE_DB_URL", required=False)
+    project_ref = get_env_var("TEST_SUPABASE_PROJECT_REF")
+    db_password = get_env_var("TEST_SUPABASE_DB_PASSWORD", required=False)
     
-    if not db_url:
-        print("TEST_SUPABASE_DB_URL not found. Constructing from credentials...")
-        project_ref = get_env_var("TEST_SUPABASE_PROJECT_REF")
-        db_password = get_env_var("TEST_SUPABASE_DB_PASSWORD")
-        # Construct direct connection string (port 5432)
-        # Assuming standard Supabase host format: db.[ref].supabase.co
-        # We need to URLEncode the password to be safe in the connection string
-        import urllib.parse
-        encoded_password = urllib.parse.quote_plus(db_password)
-        db_url = f"postgresql://postgres:{encoded_password}@db.{project_ref}.supabase.co:5432/postgres"
+    if not db_password:
+        import getpass
+        print(f"Target Project: {project_ref}")
+        db_password = getpass.getpass("Enter database password for target project: ")
 
+    import urllib.parse
+    encoded_password = urllib.parse.quote_plus(db_password)
+    db_url = f"postgresql://postgres:{encoded_password}@db.{project_ref}.supabase.co:5432/postgres"
+    
     local_backup_dir = os.path.expanduser(get_env_var("LOCAL_BACKUP_DIR", required=False) or "./backups")
     source_dir = os.path.join(local_backup_dir, "database")
 
