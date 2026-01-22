@@ -209,16 +209,18 @@ class StorageMigrator:
                 
                 encoded_path = quote(rel_path)
                 with open(local_path, 'rb') as f:
-                    resp = await self._request_with_retry(
-                        "POST", 
-                        f"{self.url}/storage/v1/object/{bucket_name}/{encoded_path}", 
-                        headers=headers,
-                        data=f
-                    )
-                    async with resp:
-                        if resp.status not in [200, 201]:
-                            text = await resp.text()
-                            print(f"Failed to upload {rel_path}: {resp.status} - {text}")
+                    file_content = f.read()
+                
+                resp = await self._request_with_retry(
+                    "POST", 
+                    f"{self.url}/storage/v1/object/{bucket_name}/{encoded_path}", 
+                    headers=headers,
+                    data=file_content
+                )
+                async with resp:
+                    if resp.status not in [200, 201]:
+                        text = await resp.text()
+                        print(f"Failed to upload {rel_path}: {resp.status} - {text}")
 
         tasks = [_upload(item) for item in files_to_upload]
         for f in tqdm.tqdm(asyncio.as_completed(tasks), total=len(tasks), desc=f"Restoring {bucket_name}"):
