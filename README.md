@@ -110,5 +110,4 @@ sudo systemctl enable --now supabase-backup.timer
 
 ## Troubleshooting
 - **Permission Denied (Restore)**: The script automatically comments out `GRANT ... TO "postgres"` and skips `storage.buckets_vectors`. If new tables cause issues, add them to `skip_tables` in `database.py`.
-- **Closed File Error (Storage)**: Fixed in latest version by buffering uploads. Update `storage.py`.
 - **Database Connection**: Ensure `TEST_SUPABASE_PROJECT_REF` is set. The script will ask for the password.
