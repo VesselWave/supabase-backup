@@ -57,7 +57,7 @@ while [[ $# -gt 0 ]]; do
         ;;
         *)
         echo "Unknown argument: $1"
-        shift
+        exit 1
         ;;
     esac
 done
@@ -99,6 +99,7 @@ if [ "$IS_TEST_MODE" = true ]; then
         echo "Confirmation skipped (--yes)."
     else
         read -p "Restoring to TEST instance. This will WIPE ALL DATA and mirror the backup. Continue? (y/n) " -n 1 -r
+        echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
             echo "Aborted."
             exit 1
@@ -156,7 +157,11 @@ if [ "$ARCHIVE_NAME" != "Local" ]; then
     # Determine extraction target (defaults to LOCAL_BACKUP_DIR)
     BORG_EXTRACT_DIR=$(eval echo "${BORG_EXTRACT_DIR:-$LOCAL_BACKUP_DIR}")
     
-    if [ ! -d "$BORG_EXTRACT_DIR" ]; then
+    if [ -d "$BORG_EXTRACT_DIR" ]; then
+        echo "Cleaning extraction directory: $BORG_EXTRACT_DIR (to ensure exact match with archive)"
+        # Delete everything inside to start fresh
+        find "$BORG_EXTRACT_DIR" -mindepth 1 -delete
+    else
         echo "Creating extraction directory: $BORG_EXTRACT_DIR"
         mkdir -p "$BORG_EXTRACT_DIR"
     fi
@@ -188,17 +193,24 @@ npm install supabase@latest --silent
 
 # (Venv setup moved to top)
 
-# 3. Database Restore
+# 2. Cleaning Phase
 if [ "$RESTORE_DB" = true ]; then
-    echo "Restoring database..."
+    echo "--- Phase 1: Cleaning Database ---"
+    $PYTHON_EXEC database.py wipe
+fi
+
+# 3. Restore Phase
+if [ "$RESTORE_DB" = true ]; then
+    echo "--- Phase 2: Restoring Database ---"
     $PYTHON_EXEC database.py restore
 else
     echo "Skipping database restore."
 fi
 
-# 4. Storage Restore
+# 4. Storage Phase
 if [ "$RESTORE_STORAGE" = true ]; then
-    echo "Restoring storage..."
+    echo "--- Phase 3: Restoring Storage Content ---"
+    # Note: storage.py handles its own 'wipe' logic by deleting extra files
     $PYTHON_EXEC storage.py restore
 else
     echo "Skipping storage restore."

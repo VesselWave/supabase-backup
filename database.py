@@ -165,34 +165,83 @@ def clean_data_file(file_path):
     
     os.replace(temp_path, file_path)
 
-def wipe_database(db_url):
+def wipe_database(project_ref, db_password):
     """
-    Drops and recreates the public schema to ensure a clean state before restore.
+    Ensures a clean state before restore by:
+    1. Recreating the 'public' schema.
+    2. Truncating all tables in 'auth' and 'storage' schemas.
+    3. Dropping the 'supabase_migrations' schema.
+    4. Truncate supabase_functions.hooks if it exists.
     """
-    print("Wiping 'public' schema on target database...")
+    print(f"Wiping target project {project_ref} manually using psql...")
     
-    # We verify the connection and wipe public schema
-    # Use psql for this as it's already available
+    import urllib.parse
+    import tempfile
+    import shlex
     
-    commands = [
-        "DROP SCHEMA IF EXISTS public CASCADE;",
-        "CREATE SCHEMA public;",
-        "GRANT ALL ON SCHEMA public TO postgres;",
-        "GRANT ALL ON SCHEMA public TO public;" 
-    ]
+    encoded_password = urllib.parse.quote_plus(db_password)
+    db_url = f"postgresql://postgres:{encoded_password}@db.{project_ref}.supabase.co:5432/postgres"
+
+    # Debug: Check bucket count before wipe
+    run_command(f'psql --dbname "{db_url}" --command "SELECT count(*) as buckets_before FROM storage.buckets;"')
+
+    wipe_query = """
+    -- 1. Wipe public schema
+    DROP SCHEMA IF EXISTS public CASCADE;
+    CREATE SCHEMA public;
+    GRANT ALL ON SCHEMA public TO postgres;
+    GRANT ALL ON SCHEMA public TO public;
+
+    -- 2. Wipe migration history schema
+    DROP SCHEMA IF EXISTS supabase_migrations CASCADE;
+
+    -- 3. Truncate auth and storage tables
+    DO $$ 
+    BEGIN
+        -- Clear storage buckets and objects first
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'storage' AND table_name = 'buckets') THEN
+            TRUNCATE TABLE storage.buckets CASCADE;
+        END IF;
+
+        -- Clear auth users
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'auth' AND table_name = 'users') THEN
+            TRUNCATE TABLE auth.users CASCADE;
+        END IF;
+
+        -- Schema-wide truncation
+        DECLARE
+            r RECORD;
+        BEGIN
+            FOR r IN (SELECT table_name, table_schema FROM information_schema.tables WHERE table_schema IN ('auth', 'storage') AND table_type = 'BASE TABLE') LOOP
+                EXECUTE 'TRUNCATE TABLE ' || quote_ident(r.table_schema) || '.' || quote_ident(r.table_name) || ' CASCADE';
+            END LOOP;
+        END;
+
+        -- Truncate supabase_functions tables
+        IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'supabase_functions') THEN
+            IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'supabase_functions' AND tablename = 'hooks') THEN
+                TRUNCATE TABLE supabase_functions.hooks CASCADE;
+            END IF;
+        END IF;
+    END $$;
+    """
     
-    query = " ".join(commands)
-    
-    # Construct psql command
-    cmd = ["psql", "--dbname", db_url, "--command", query]
-    
-    cmd_str = " ".join([f'"{c}"' if " " in c or c.startswith("postgresql://") else c for c in cmd])
-    
-    if not run_command(cmd_str):
-        print("Error: Database wipe failed.")
-        sys.exit(1)
-    
-    print("Public schema wiped and recreated successfully.")
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.sql', delete=False) as tf:
+        tf.write(wipe_query)
+        temp_sql_path = tf.name
+
+    try:
+        cmd = ["psql", "--dbname", db_url, "--file", temp_sql_path]
+        if not run_command(" ".join([shlex.quote(c) for c in cmd])):
+            print("Error: Manual database wipe failed.")
+            sys.exit(1)
+    finally:
+        if os.path.exists(temp_sql_path):
+            os.remove(temp_sql_path)
+
+    # Debug: Check bucket count after wipe
+    run_command(f'psql --dbname "{db_url}" --command "SELECT count(*) as buckets_after FROM storage.buckets;"')
+    print("Database wiped successfully.")
 
 def backup():
     project_ref = get_env_var("SUPABASE_PROJECT_REF")
@@ -270,10 +319,7 @@ def restore():
     # psql is required
     check_tool("psql", "Error: 'psql' is required but not installed.")
     
-    # 0. WIPE DATABASE
-    wipe_database(db_url)
-
-    # 0. Check requirements (Webhooks, Extensions, Realtime)
+    # Check requirements (Webhooks, Extensions, Realtime)
     check_restore_requirements(source_dir)
 
     roles_path = os.path.join(source_dir, "roles.sql")
@@ -292,7 +338,9 @@ def restore():
     print("Restoring main database...")
     
     # Construct command list manually to interleave SET command
+    # SET session_replication_role = replica is at the START to prevent triggers during schema/roles
     cmd = ["psql", "--single-transaction", "--variable", "ON_ERROR_STOP=1"]
+    cmd.extend(["--command", "SET session_replication_role = replica"])
     
     if os.path.exists(roles_path):
         cmd.extend(["--file", roles_path])
@@ -304,7 +352,12 @@ def restore():
     else:
         print(f"Warning: {schema_path} not found. Skipping.")
 
-    cmd.extend(["--command", "SET session_replication_role = replica"])
+    # Apply auth/storage changes if they exist
+    changes_path = os.path.join(source_dir, "changes.sql")
+    if os.path.exists(changes_path):
+        cmd.extend(["--file", changes_path])
+    else:
+        print(f"Info: {changes_path} not found. Skipping.")
 
     if os.path.exists(data_path):
         cmd.extend(["--file", data_path])
@@ -337,10 +390,14 @@ def restore():
 if __name__ == "__main__":
     load_dotenv()
     parser = argparse.ArgumentParser(description="Supabase Database Backup/Restore")
-    parser.add_argument("action", choices=["backup", "restore"], help="Action to perform")
+    parser.add_argument("action", choices=["backup", "restore", "wipe"], help="Action to perform")
     args = parser.parse_args()
 
     if args.action == "backup":
         backup()
     elif args.action == "restore":
         restore()
+    elif args.action == "wipe":
+        project_ref = get_env_var("TARGET_PROJECT_REF")
+        db_password = get_env_var("TARGET_DB_PASSWORD")
+        wipe_database(project_ref, db_password)
