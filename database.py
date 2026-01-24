@@ -48,33 +48,40 @@ def check_restore_requirements(source_dir):
 def clean_schema_file(file_path):
     """
     Comments out 'ALTER ... OWNER TO "supabase_admin"' lines to avoid permission errors.
+    Returns path to temporary cleaned file.
     """
     if not os.path.exists(file_path):
-        return
+        return None
 
     print(f"Cleaning schema file: {file_path}")
-    temp_path = file_path + ".tmp"
     
-    with open(file_path, "r", encoding="utf-8") as f_in, \
-         open(temp_path, "w", encoding="utf-8") as f_out:
+    import tempfile
+    
+    tf = tempfile.NamedTemporaryFile(mode='w', suffix='.sql', delete=False)
+    temp_path = tf.name
+    
+    with open(file_path, "r", encoding="utf-8") as f_in:
         for line in f_in:
             if 'OWNER TO "supabase_admin"' in line and not line.strip().startswith("--"):
-                f_out.write(f"-- {line}")
+                tf.write(f"-- {line}")
             else:
-                f_out.write(line)
+                tf.write(line)
     
-    os.replace(temp_path, file_path)
+    tf.close()
+    return temp_path
 
 def clean_roles_file(file_path):
     """
     Comments out lines that cause permission errors in roles.sql, specifically
     granting the 'postgres' role which is restricted in managed Supabase.
+    Returns path to temporary cleaned file.
     """
     if not os.path.exists(file_path):
-        return
+        return None
 
     print(f"Cleaning roles file: {file_path}")
-    temp_path = file_path + ".tmp"
+    
+    import tempfile
     
     # System roles that should not be created/altered during restore
     # authenticatiod, anon, service_role are default Supabase roles
@@ -87,15 +94,17 @@ def clean_roles_file(file_path):
         "cli_login_postgres"
     ]
     
-    with open(file_path, "r", encoding="utf-8") as f_in, \
-         open(temp_path, "w", encoding="utf-8") as f_out:
+    tf = tempfile.NamedTemporaryFile(mode='w', suffix='.sql', delete=False)
+    temp_path = tf.name
+    
+    with open(file_path, "r", encoding="utf-8") as f_in:
         for line in f_in:
             line_strip = line.strip()
             # 1. Check for GRANT <role> TO ...
             if ("GRANT postgres TO" in line or 'GRANT "postgres" TO' in line) and not line_strip.startswith("--"):
-                f_out.write(f"-- {line}")
+                tf.write(f"-- {line}")
             elif ("GRANT supabase_admin TO" in line or 'GRANT "supabase_admin" TO' in line) and not line_strip.startswith("--"):
-                f_out.write(f"-- {line}")
+                tf.write(f"-- {line}")
             # 2. Check for CREATE ROLE <system_role> or ALTER ROLE <system_role>
             else:
                 is_system_role_line = False
@@ -108,21 +117,24 @@ def clean_roles_file(file_path):
                         break
                 
                 if is_system_role_line and not line_strip.startswith("--"):
-                     f_out.write(f"-- {line}")
+                     tf.write(f"-- {line}")
                 else:
-                     f_out.write(line)
+                     tf.write(line)
     
-    os.replace(temp_path, file_path)
+    tf.close()
+    return temp_path
 
 def clean_data_file(file_path):
     """
     Comments out COPY statements for tables that cause permission errors.
+    Returns path to temporary cleaned file.
     """
     if not os.path.exists(file_path):
-        return
+        return None
 
     print(f"Cleaning data file: {file_path}")
-    temp_path = file_path + ".tmp"
+    
+    import tempfile
     
     # List of tables to skip data restore for if they cause issues
     # "storage"."buckets_vectors" is known to cause permission denied for postgres role
@@ -132,8 +144,10 @@ def clean_data_file(file_path):
     
     skipping = False
     
-    with open(file_path, "r", encoding="utf-8") as f_in, \
-         open(temp_path, "w", encoding="utf-8") as f_out:
+    tf = tempfile.NamedTemporaryFile(mode='w', suffix='.sql', delete=False)
+    temp_path = tf.name
+    
+    with open(file_path, "r", encoding="utf-8") as f_in:
         for line in f_in:
             if line.startswith("COPY "):
                 # Check if this COPY is for a skipped table
@@ -143,7 +157,7 @@ def clean_data_file(file_path):
                         break
             
             if skipping:
-                f_out.write(f"-- {line}")
+                tf.write(f"-- {line}")
                 if line.strip() == r"\.":
                     skipping = False
             elif "pg_catalog.setval" in line:
@@ -154,16 +168,17 @@ def clean_data_file(file_path):
                     if len(parts) > 0:
                         schema_part = parts[0] 
                         if schema_part in line:
-                             f_out.write(f"-- {line}")
+                             tf.write(f"-- {line}")
                              skipping_line = True
                              break
                 
                 if not skipping_line:
-                    f_out.write(line)
+                    tf.write(line)
             else:
-                f_out.write(line)
+                tf.write(line)
     
-    os.replace(temp_path, file_path)
+    tf.close()
+    return temp_path
 
 def wipe_database(project_ref, db_password):
     """
@@ -328,64 +343,94 @@ def restore():
     history_schema_path = os.path.join(source_dir, "history_schema.sql")
     history_data_path = os.path.join(source_dir, "history_data.sql")
 
-    # 1. Clean schema files
-    clean_schema_file(schema_path)
-    clean_schema_file(history_schema_path)
-    clean_roles_file(roles_path)
-    clean_data_file(data_path)
+    cleaned_files_to_remove = []
 
-    # Main Restore
-    print("Restoring main database...")
-    
-    # Construct command list manually to interleave SET command
-    # SET session_replication_role = replica is at the START to prevent triggers during schema/roles
-    cmd = ["psql", "--single-transaction", "--variable", "ON_ERROR_STOP=1"]
-    cmd.extend(["--command", "SET session_replication_role = replica"])
-    
-    if os.path.exists(roles_path):
-        cmd.extend(["--file", roles_path])
-    else:
-        print(f"Warning: {roles_path} not found. Skipping.")
-
-    if os.path.exists(schema_path):
-        cmd.extend(["--file", schema_path])
-    else:
-        print(f"Warning: {schema_path} not found. Skipping.")
-
-    # Apply auth/storage changes if they exist
-    changes_path = os.path.join(source_dir, "changes.sql")
-    if os.path.exists(changes_path):
-        cmd.extend(["--file", changes_path])
-    else:
-        print(f"Info: {changes_path} not found. Skipping.")
-
-    if os.path.exists(data_path):
-        cmd.extend(["--file", data_path])
-    else:
-        print(f"Warning: {data_path} not found. Skipping.")
-
-    cmd.extend(["--dbname", db_url])
-    
-    cmd_str = " ".join([f'"{c}"' if " " in c or c.startswith("postgresql://") else c for c in cmd])
-    
-    if not run_command(cmd_str):
-        print("Error: Main restore failed.")
-        sys.exit(1)
-
-    # History Restore
-    if os.path.exists(history_schema_path) or os.path.exists(history_data_path):
-        print("Restoring migration history...")
-        history_cmd = ["psql", "--single-transaction", "--variable", "ON_ERROR_STOP=1"]
-        if os.path.exists(history_schema_path): history_cmd.extend(["--file", history_schema_path])
-        if os.path.exists(history_data_path): history_cmd.extend(["--file", history_data_path])
-        history_cmd.extend(["--dbname", db_url])
+    try:
+        # 1. Clean schema files
+        # We process files and capture their temp paths.
         
-        history_cmd_str = " ".join([f'"{c}"' if " " in c or c.startswith("postgresql://") else c for c in history_cmd])
-        if not run_command(history_cmd_str):
-            print("Error: History restore failed.")
+        # Helper to process cleaning and track temp file
+        def process_clean(original_path, clean_func):
+            if os.path.exists(original_path):
+                cleaned_path = clean_func(original_path)
+                if cleaned_path:
+                    cleaned_files_to_remove.append(cleaned_path)
+                    return cleaned_path
+            return None
+
+        clean_schema_path = process_clean(schema_path, clean_schema_file)
+        clean_history_schema_path = process_clean(history_schema_path, clean_schema_file)
+        clean_roles_path = process_clean(roles_path, clean_roles_file)
+        clean_data_path = process_clean(data_path, clean_data_file)
+
+        # Main Restore
+        print("Restoring main database...")
+        
+        # Construct command list manually to interleave SET command
+        # SET session_replication_role = replica is at the START to prevent triggers during schema/roles
+        cmd = ["psql", "--single-transaction", "--variable", "ON_ERROR_STOP=1"]
+        cmd.extend(["--command", "SET session_replication_role = replica"])
+        
+        # Roles: use cleaned path if available, else original (though logic implies it is always cleaned if exists)
+        final_roles_path = clean_roles_path or roles_path
+        if os.path.exists(final_roles_path):
+            cmd.extend(["--file", final_roles_path])
+        else:
+            print(f"Warning: {roles_path} not found. Skipping.")
+
+        final_schema_path = clean_schema_path or schema_path
+        if os.path.exists(final_schema_path):
+            cmd.extend(["--file", final_schema_path])
+        else:
+            print(f"Warning: {schema_path} not found. Skipping.")
+
+        # Apply auth/storage changes if they exist
+        changes_path = os.path.join(source_dir, "changes.sql")
+        if os.path.exists(changes_path):
+            cmd.extend(["--file", changes_path])
+        else:
+            print(f"Info: {changes_path} not found. Skipping.")
+
+        final_data_path = clean_data_path or data_path
+        if os.path.exists(final_data_path):
+            cmd.extend(["--file", final_data_path])
+        else:
+            print(f"Warning: {data_path} not found. Skipping.")
+
+        cmd.extend(["--dbname", db_url])
+        
+        cmd_str = " ".join([f'"{c}"' if " " in c or c.startswith("postgresql://") else c for c in cmd])
+        
+        if not run_command(cmd_str):
+            print("Error: Main restore failed.")
             sys.exit(1)
 
-    print("Database restore completed.")
+        # History Restore
+        if os.path.exists(history_schema_path) or os.path.exists(history_data_path):
+            print("Restoring migration history...")
+            history_cmd = ["psql", "--single-transaction", "--variable", "ON_ERROR_STOP=1"]
+            
+            final_history_schema_path = clean_history_schema_path or history_schema_path
+            if os.path.exists(final_history_schema_path): history_cmd.extend(["--file", final_history_schema_path])
+            
+            if os.path.exists(history_data_path): history_cmd.extend(["--file", history_data_path])
+            history_cmd.extend(["--dbname", db_url])
+            
+            history_cmd_str = " ".join([f'"{c}"' if " " in c or c.startswith("postgresql://") else c for c in history_cmd])
+            if not run_command(history_cmd_str):
+                print("Error: History restore failed.")
+                sys.exit(1)
+
+        print("Database restore completed.")
+        
+    finally:
+        # Cleanup temporary files
+        for f in cleaned_files_to_remove:
+            if os.path.exists(f):
+                try:
+                    os.remove(f)
+                except OSError as e:
+                    print(f"Warning: Failed to remove temp file {f}: {e}")
 
 if __name__ == "__main__":
     load_dotenv()
