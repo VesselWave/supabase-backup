@@ -193,21 +193,15 @@ npm install supabase@latest --silent
 
 # (Venv setup moved to top)
 
-# 2. Cleaning Phase
+# 2. Restore Phase (includes atomic wipe)
 if [ "$RESTORE_DB" = true ]; then
-    echo "--- Phase 1: Cleaning Database ---"
-    $PYTHON_EXEC database.py wipe
-fi
-
-# 3. Restore Phase
-if [ "$RESTORE_DB" = true ]; then
-    echo "--- Phase 2: Restoring Database ---"
+    echo "--- Phase 1: Restoring Database (with atomic wipe) ---"
     $PYTHON_EXEC database.py restore
 else
     echo "Skipping database restore."
 fi
 
-# 4. Storage Phase
+# 3. Storage Phase
 if [ "$RESTORE_STORAGE" = true ]; then
     echo "--- Phase 3: Restoring Storage Content ---"
     # Note: storage.py handles its own 'wipe' logic by deleting extra files

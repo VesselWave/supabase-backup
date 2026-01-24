@@ -57,7 +57,7 @@ def clean_schema_file(file_path):
     
     import tempfile
     
-    tf = tempfile.NamedTemporaryFile(mode='w', suffix='.sql', delete=False)
+    tf = tempfile.NamedTemporaryFile(mode='w', suffix='.sql', prefix='restore_schema_', delete=False)
     temp_path = tf.name
     
     with open(file_path, "r", encoding="utf-8") as f_in:
@@ -94,7 +94,7 @@ def clean_roles_file(file_path):
         "cli_login_postgres"
     ]
     
-    tf = tempfile.NamedTemporaryFile(mode='w', suffix='.sql', delete=False)
+    tf = tempfile.NamedTemporaryFile(mode='w', suffix='.sql', prefix='restore_roles_', delete=False)
     temp_path = tf.name
     
     with open(file_path, "r", encoding="utf-8") as f_in:
@@ -140,11 +140,11 @@ def clean_data_file(file_path):
     # "storage"."buckets_vectors" is known to cause permission denied for postgres role
     # "storage"."vector_indexes" is also restricted
     # "supabase_functions"."hooks" schema might not exist on restore target
-    skip_tables = ['"storage"."buckets_vectors"', '"storage"."vector_indexes"', '"supabase_functions"."hooks"']
+    skip_tables = ['"storage"."buckets_vectors"', '"storage"."vector_indexes"', '"supabase_functions"."hooks"', '"auth"."flow_state"']
     
     skipping = False
     
-    tf = tempfile.NamedTemporaryFile(mode='w', suffix='.sql', delete=False)
+    tf = tempfile.NamedTemporaryFile(mode='w', suffix='.sql', prefix='restore_data_', delete=False)
     temp_path = tf.name
     
     with open(file_path, "r", encoding="utf-8") as f_in:
@@ -210,8 +210,20 @@ def wipe_database(project_ref, db_password):
     -- 2. Wipe migration history schema
     DROP SCHEMA IF EXISTS supabase_migrations CASCADE;
 
-    -- 3. Truncate auth and storage tables
+    -- 3. Drop all policies in auth and storage schemas
     DO $$ 
+    DECLARE 
+        r RECORD; 
+    BEGIN 
+        FOR r IN (SELECT policyname, tablename, schemaname FROM pg_policies WHERE schemaname IN ('auth', 'storage')) LOOP 
+            EXECUTE 'DROP POLICY IF EXISTS "' || r.policyname || '" ON "' || r.schemaname || '"."' || r.tablename || '"'; 
+        END LOOP; 
+    END $$;
+
+    -- 4. Truncate auth and storage tables
+    DO $$ 
+    DECLARE
+        r RECORD;
     BEGIN
         -- Clear storage buckets and objects first
         IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'storage' AND table_name = 'buckets') THEN
@@ -223,14 +235,10 @@ def wipe_database(project_ref, db_password):
             TRUNCATE TABLE auth.users CASCADE;
         END IF;
 
-        -- Schema-wide truncation
-        DECLARE
-            r RECORD;
-        BEGIN
-            FOR r IN (SELECT table_name, table_schema FROM information_schema.tables WHERE table_schema IN ('auth', 'storage') AND table_type = 'BASE TABLE') LOOP
-                EXECUTE 'TRUNCATE TABLE ' || quote_ident(r.table_schema) || '.' || quote_ident(r.table_name) || ' CASCADE';
-            END LOOP;
-        END;
+        -- Schema-wide truncation for all auth and storage tables
+        FOR r IN (SELECT table_name, table_schema FROM information_schema.tables WHERE table_schema IN ('auth', 'storage') AND table_type = 'BASE TABLE') LOOP
+            EXECUTE 'TRUNCATE TABLE ' || quote_ident(r.table_schema) || '.' || quote_ident(r.table_name) || ' CASCADE';
+        END LOOP;
 
         -- Truncate supabase_functions tables
         IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'supabase_functions') THEN
@@ -241,7 +249,7 @@ def wipe_database(project_ref, db_password):
     END $$;
     """
     
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.sql', delete=False) as tf:
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.sql', prefix='wipe_db_', delete=False) as tf:
         tf.write(wipe_query)
         temp_sql_path = tf.name
 
@@ -366,10 +374,33 @@ def restore():
         # Main Restore
         print("Restoring main database...")
         
+        # Use supabase db reset to cleanly wipe the database
+        print("Resetting database using Supabase CLI...")
+        env = os.environ.copy()
+        node_bin = os.path.join(os.getcwd(), "node_modules", ".bin")
+        env["PATH"] = f"{node_bin}{os.pathsep}{env.get('PATH', '')}"
+        
+        # Link to the target project
+        link_cmd = f"supabase link --project-ref {project_ref} --password '{db_password}'"
+        if not run_command(link_cmd, env=env):
+            print("Error: Failed to link to target project.")
+            sys.exit(1)
+        
+        # Reset the database
+        reset_cmd = "supabase db reset --linked --yes"
+        if not run_command(reset_cmd, env=env):
+            print("Error: Database reset failed.")
+            sys.exit(1)
+        
+        print("Database reset completed. Starting restore...")
+        
         # Construct command list manually to interleave SET command
         # SET session_replication_role = replica is at the START to prevent triggers during schema/roles
         cmd = ["psql", "--single-transaction", "--variable", "ON_ERROR_STOP=1"]
         cmd.extend(["--command", "SET session_replication_role = replica"])
+        
+        # Truncate storage.buckets to remove any buckets created by migrations during reset
+        cmd.extend(["--command", "TRUNCATE TABLE storage.buckets CASCADE"])
         
         # Roles: use cleaned path if available, else original (though logic implies it is always cleaned if exists)
         final_roles_path = clean_roles_path or roles_path
