@@ -9,49 +9,31 @@ from dotenv import load_dotenv
 # Load environment to get BORG_REPO
 load_dotenv()
 
-def calculate_strip_count(borg_json_output):
+def calculate_strip_count(borg_json_lines):
     """
-    Analyzes borg list --json output to determine how many path components to strip.
-    Ensures that 'database' and 'storage' directories end up at the root of the extract dir.
+    Determines how many path components to strip from Borg extraction.
+    Accepts string input (multiple JSON lines).
     """
     try:
-        data = json.loads(borg_json_output)
-        paths = [item['path'] for item in data.get('repository', {}).get('items', [])] 
-        # borg list --json output structure is: {'archives': [...]} for list archives
-        # BUT for list contents: borg list --json REPO::ARCHIVE
-        # output is: {'items': [{'path': '...'}, ...]}
-        # Let's handle both safely or specific check
-        
-        if 'items' in data:
-            paths = [item['path'] for item in data['items']]
-        else:
-            return 0
-            
-        if not paths:
-            return 0
-            
-        # Standard commonpath (no trailing slash)
-        common = os.path.commonpath(paths)
-        
-        if not common or common == '/' or common == '.':
-            return 0
-            
-        # Check if common path ends in database/storage keywords
-        # This handles case where backup only contains one folder
-        basename = os.path.basename(common)
-        if basename in ['database', 'storage', 'data']:
-            common = os.path.dirname(common)
+        paths = []
+        for line in borg_json_lines.strip().split('\n'):
+            if not line: continue
+            try:
+                data = json.loads(line)
+                if 'path' in data: paths.append(data['path'])
+            except json.JSONDecodeError: continue
 
-        if not common or common == '/' or common == '.':
-            return 0
+        if not paths: return 0
             
-        # Count components
-        # remove leading slash for counting
-        normalized = common.lstrip(os.sep)
-        if not normalized:
-            return 0
+        common = os.path.commonpath(paths)
+        if not common or common in ['.', '/']: return 0
             
-        return len(normalized.split(os.sep))
+        parts = common.strip(os.sep).split(os.sep)
+        # If deepest common part is database/storage/data, strip to its parent
+        if parts[-1] in ['database', 'storage', 'data']:
+            return len(parts) - 1
+            
+        return len(parts)
     except Exception:
         return 0
 
@@ -88,10 +70,9 @@ def get_borg_archives():
         return []
 
 def main():
-    # If called with --calculate-strip, read JSON from stdin and output count
-    if len(sys.argv) > 1 and sys.argv[1] == "--calculate-strip":
-        content = sys.stdin.read()
-        print(calculate_strip_count(content))
+    # If called with --calculate-strip, determine output count via stdin
+    if "--calculate-strip" in sys.argv:
+        print(calculate_strip_count(sys.stdin.read()))
         return
 
     archives = get_borg_archives()
