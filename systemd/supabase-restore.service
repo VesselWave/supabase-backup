@@ -4,7 +4,8 @@ After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=/home/user/repos/supabase-backup/restore.sh
+ExecStart=/home/user/repos/supabase-backup/restore.sh --test --yes
 WorkingDirectory=/home/user/repos/supabase-backup
 StandardOutput=append:/var/log/supabase-restore.log
 StandardError=append:/var/log/supabase-restore.log
+

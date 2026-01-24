@@ -64,35 +64,37 @@ This will:
 6. Prune old archives.
 
 ### Restore
-To restore to a test or production environment defined in your `.env` (under `[Test/Restore Target]`):
+The restore process ensures the target environment **exactly mirrors** the backup. 
+- **Database**: The `public` schema is wiped and recreated before restoring data.
+- **Storage**: Files on the remote bucket that are not in the backup are deleted (wiped), and missing/changed files are uploaded.
 
-1. **Database Restore**:
-   ```bash
-   # Uses ./venv/bin/python database.py restore
-   ./venv/bin/python database.py restore
-   ```
-   *Automatic Actions:*
-   - Checks target requirements (Webhooks/Realtime).
-   - Cleans `roles.sql` and `schema.sql` of restricted permissions.
-   - Restores main schema/data.
-   - Restores migration history.
-   *Input*:
-   - Prompts for database password if `TEST_SUPABASE_DB_PASSWORD` is not set.
+**Warning: Restore operations are destructive. Use with caution.**
 
-2. **Storage Restore**:
-   ```bash
-   # Uses ./venv/bin/python storage.py restore
-   ./venv/bin/python storage.py restore
-   ```
-   *Restores all buckets found in the local backup directory.*
+#### 1. Restore to Test Environment (Automated)
+Uses configuration from `.env` (`TEST_SUPABASE_...` variables).
+```bash
+./restore.sh --test
+```
+*Add `-y` or `--yes` to skip the confirmation prompt (useful for automation).*
+
+#### 2. Restore to Custom Target (Manual)
+Run without arguments to restore to any project. You will be prompted for the Project Ref, Database Password, and Service Role Key.
+```bash
+./restore.sh
+```
+*Requires triple-confirmation to prevent accidental data loss.*
 
 ## System Integration (Systemd)
 
 ### 1. Logging
-Logs to `/var/log/supabase-backup.log`:
+Logs are stored in `/var/log/`:
+- Backup: `/var/log/supabase-backup.log`
+- Restore: `/var/log/supabase-restore.log`
+
+Setup permissions:
 ```bash
-sudo touch /var/log/supabase-backup.log
-sudo chown $USER:$USER /var/log/supabase-backup.log
+sudo touch /var/log/supabase-backup.log /var/log/supabase-restore.log
+sudo chown $USER:$USER /var/log/supabase-backup.log /var/log/supabase-restore.log
 ```
 
 ### 2. Logrotate
@@ -100,14 +102,22 @@ sudo chown $USER:$USER /var/log/supabase-backup.log
 sudo cp systemd/supabase-backup /etc/logrotate.d/supabase-backup
 ```
 
-### 3. Service & Timer
+### 3. Backup Service & Timer (Daily)
 ```bash
-sudo cp systemd/supabase-backup.* /etc/systemd/system/
+sudo cp systemd/supabase-backup.service systemd/supabase-backup.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-# Run daily
 sudo systemctl enable --now supabase-backup.timer
+```
+
+### 4. Restore Service (On-Demand / Scheduled)
+The restore service targets the **Test Environment** defined in `.env`.
+```bash
+sudo cp systemd/supabase-restore.service /etc/systemd/system/
+sudo systemctl daemon-reload
+# Run a one-off restore to test:
+sudo systemctl start supabase-restore.service
 ```
 
 ## Troubleshooting
 - **Permission Denied (Restore)**: The script automatically comments out `GRANT ... TO "postgres"` and skips `storage.buckets_vectors`. If new tables cause issues, add them to `skip_tables` in `database.py`.
-- **Database Connection**: Ensure `TEST_SUPABASE_PROJECT_REF` is set. The script will ask for the password.
+- **Wipe Safety**: Manual restores require you to type the target project reference to confirm, ensuring you don't accidentally wipe a wrong project.

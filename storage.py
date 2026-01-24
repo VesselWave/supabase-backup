@@ -226,6 +226,65 @@ class StorageMigrator:
         for f in tqdm.tqdm(asyncio.as_completed(tasks), total=len(tasks), desc=f"Restoring {bucket_name}"):
             await f
 
+    async def delete_file(self, bucket_name: str, path: str):
+        encoded_path = quote(path)
+        resp = await self._request_with_retry(
+            "DELETE", 
+            f"{self.url}/storage/v1/object/{bucket_name}/{encoded_path}", 
+            headers=self.headers
+        )
+        async with resp:
+            if resp.status != 200:
+                print(f"Failed to delete {path}: {resp.status}")
+
+    async def wipe_bucket(self, bucket_name: str, source_dir: str):
+        """
+        Deletes files in the remote bucket that are NOT present in the local source_dir.
+        """
+        print(f"Wiping extra files in {bucket_name}...")
+        
+        # 1. List remote files
+        remote_files = await self.recursive_list_files(bucket_name)
+        if not remote_files:
+             return
+
+        # 2. List local files in this bucket
+        bucket_source = os.path.join(source_dir, bucket_name)
+        local_files_set = set()
+        
+        if os.path.exists(bucket_source):
+            for root, _, filenames in os.walk(bucket_source):
+                for filename in filenames:
+                    if filename.endswith('.__metadata.json'):
+                        continue
+                    local_path = os.path.join(root, filename)
+                    rel_path = os.path.relpath(local_path, bucket_source)
+                    # Normalize path separators just in case
+                    rel_path = rel_path.replace("\\", "/")
+                    local_files_set.add(rel_path)
+        
+        # 3. Identify files to delete
+        files_to_delete = []
+        for rf in remote_files:
+            # rf['full_path'] is effectively the relative path from bucket root
+            if rf['full_path'] not in local_files_set:
+                files_to_delete.append(rf['full_path'])
+        
+        if not files_to_delete:
+            print(f"No extra files found in {bucket_name}.")
+            return
+
+        print(f"Deleting {len(files_to_delete)} extra files from {bucket_name}...")
+        
+        sem = asyncio.Semaphore(10)
+        async def _delete(path):
+            async with sem:
+                await self.delete_file(bucket_name, path)
+        
+        tasks = [_delete(p) for p in files_to_delete]
+        for f in tqdm.tqdm(asyncio.as_completed(tasks), total=len(tasks), desc=f"Wiping {bucket_name}"):
+            await f
+
 async def backup():
     project_ref = get_env_var("SUPABASE_PROJECT_REF")
     service_role_key = get_env_var("SUPABASE_SERVICE_ROLE_KEY")
@@ -242,8 +301,8 @@ async def backup():
             await migrator.backup_bucket(bucket['name'], target_dir)
 
 async def restore():
-    project_ref = get_env_var("TEST_SUPABASE_PROJECT_REF")
-    service_role_key = get_env_var("TEST_SUPABASE_SERVICE_ROLE_KEY")
+    project_ref = get_env_var("TARGET_PROJECT_REF")
+    service_role_key = get_env_var("TARGET_SERVICE_ROLE_KEY")
     url = f"https://{project_ref}.supabase.co"
     
     local_backup_dir = os.path.expanduser(get_env_var("LOCAL_BACKUP_DIR", required=False) or "./backups")
@@ -254,16 +313,40 @@ async def restore():
         sys.exit(1)
 
     async with StorageMigrator(url, service_role_key) as migrator:
-        # Restore logic: look at directories in source_dir
-        for item in os.listdir(source_dir):
-            if os.path.isdir(os.path.join(source_dir, item)):
-                print(f"Restoring bucket: {item}")
-                # We don't have full bucket metadata from just the dir name, 
-                # but we can try to find the manifest if we had one.
-                # For now, just ensure bucket exists with defaults or from a manifest if we had one.
-                # Simple approach: create bucket if missing.
-                await migrator.create_bucket_if_missing({'name': item})
-                await migrator.restore_bucket(item, source_dir)
+        # Restore logic: 
+        # 1. Iterate over LOCAL buckets to ensure they exist and restore them.
+        # 2. Iterate over REMOTE buckets to wipe files? 
+        # Ideally, we mirror the backup. So we should list ALL remote buckets.
+        
+        remote_buckets = await migrator.list_buckets()
+        remote_bucket_names = set(b['name'] for b in remote_buckets)
+        
+        local_bucket_names = set()
+        if os.path.exists(source_dir):
+             local_bucket_names = set(item for item in os.listdir(source_dir) if os.path.isdir(os.path.join(source_dir, item)))
+
+        # A. WIPE/RESTORE buckets that exist locally
+        for bucket_name in local_bucket_names:
+            print(f"Processing bucket: {bucket_name}")
+            await migrator.create_bucket_if_missing({'name': bucket_name})
+            
+            # Wipe extra files first
+            await migrator.wipe_bucket(bucket_name, source_dir)
+            
+            # Then restore/upload
+            await migrator.restore_bucket(bucket_name, source_dir)
+        
+        # B. Optionally, we could delete buckets that are on remote but NOT in local.
+        # The user said "exact thing that is in the backup".
+        # So if remote has a bucket "old_junk" and backup doesn't, we should arguably delete it or at least empty it.
+        # For safety, let's just warn or empty them, but maybe not delete the bucket definition itself unless requested.
+        # Let's simple empty them if they are not in local.
+        
+        for bucket_name in remote_bucket_names:
+            if bucket_name not in local_bucket_names:
+                print(f"Bucket {bucket_name} is not in backup. Wiping content...")
+                # We treat it as if local dir is empty for this bucket
+                await migrator.wipe_bucket(bucket_name, source_dir) 
 
 if __name__ == "__main__":
     load_dotenv()

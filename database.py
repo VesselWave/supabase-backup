@@ -142,6 +142,35 @@ def clean_data_file(file_path):
     
     os.replace(temp_path, file_path)
 
+def wipe_database(db_url):
+    """
+    Drops and recreates the public schema to ensure a clean state before restore.
+    """
+    print("Wiping 'public' schema on target database...")
+    
+    # We verify the connection and wipe public schema
+    # Use psql for this as it's already available
+    
+    commands = [
+        "DROP SCHEMA IF EXISTS public CASCADE;",
+        "CREATE SCHEMA public;",
+        "GRANT ALL ON SCHEMA public TO postgres;",
+        "GRANT ALL ON SCHEMA public TO public;" 
+    ]
+    
+    query = " ".join(commands)
+    
+    # Construct psql command
+    cmd = ["psql", "--dbname", db_url, "--command", query]
+    
+    cmd_str = " ".join([f'"{c}"' if " " in c or c.startswith("postgresql://") else c for c in cmd])
+    
+    if not run_command(cmd_str):
+        print("Error: Database wipe failed.")
+        sys.exit(1)
+    
+    print("Public schema wiped and recreated successfully.")
+
 def backup():
     project_ref = get_env_var("SUPABASE_PROJECT_REF")
     access_token = get_env_var("SUPABASE_ACCESS_TOKEN", required=False)
@@ -198,15 +227,10 @@ def backup():
     run_command(f"supabase db diff --linked --schema auth,storage > {changes_path}", env=env)
 
 def restore():
-    # Credentials for the TEST database
-    project_ref = get_env_var("TEST_SUPABASE_PROJECT_REF")
-    db_password = get_env_var("TEST_SUPABASE_DB_PASSWORD", required=False)
+    # Credentials for the TARGET database
+    project_ref = get_env_var("TARGET_PROJECT_REF")
+    db_password = get_env_var("TARGET_DB_PASSWORD")
     
-    if not db_password:
-        import getpass
-        print(f"Target Project: {project_ref}")
-        db_password = getpass.getpass("Enter database password for target project: ")
-
     import urllib.parse
     encoded_password = urllib.parse.quote_plus(db_password)
     db_url = f"postgresql://postgres:{encoded_password}@db.{project_ref}.supabase.co:5432/postgres"
@@ -218,10 +242,13 @@ def restore():
         print(f"Error: Source directory {source_dir} does not exist.")
         sys.exit(1)
 
-    print(f"Starting database restore to TEST database...")
+    print(f"Starting database restore to target database...")
 
     # psql is required
     check_tool("psql", "Error: 'psql' is required but not installed.")
+    
+    # 0. WIPE DATABASE
+    wipe_database(db_url)
 
     # 0. Check requirements (Webhooks, Extensions, Realtime)
     check_restore_requirements(source_dir)
