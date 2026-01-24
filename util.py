@@ -14,7 +14,11 @@ def check_tool(tool_name, error_message=None, path=None):
 
 def run_command(command, env=None, capture=False):
     """Executes a shell command and exits on failure."""
-    print(f"Executing: {command}")
+    import re
+    # Censor password in printed command: postgresql://user:password@host -> postgresql://user:*****@host
+    censored_command = re.sub(r'(://[^:]+):([^@]+)@', r'\1:*****@', command)
+    print(f"Executing: {censored_command}")
+    
     if capture:
         result = subprocess.run(command, shell=True, env=env, capture_output=True, text=True)
     else:
