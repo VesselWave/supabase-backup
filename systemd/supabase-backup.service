@@ -6,11 +6,8 @@ After=network.target
 Type=oneshot
 # Update this to your project directory
 WorkingDirectory=/home/user/repos/supabase-backup
-# Redirect stdout and stderr to the log file
-StandardOutput=append:/var/log/supabase-backup.log
-StandardError=append:/var/log/supabase-backup.log
-# Run the script
-ExecStart=/bin/bash /home/user/repos/supabase-backup/backup.sh
+# Run the script and pipe output to both journal (stdout) and log file
+ExecStart=/bin/bash -c '/home/user/repos/supabase-backup/backup.sh 2>&1 | tee -a /var/log/supabase-backup.log'
 
 [Install]
 WantedBy=multi-user.target
