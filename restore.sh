@@ -62,6 +62,31 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# INTERACTIVE SELECTION
+RESTORE_DB=true
+RESTORE_STORAGE=true
+ARCHIVE_NAME="Local"
+
+if [ "$SKIP_CONFIRM" = false ]; then
+    echo "Starting interactive selection..."
+    # Run interactive.py and capture JSON
+    # we use a temporary file to capture output reliably or just parse stdout
+    # interactive.py prints only JSON to stdout
+    SELECTION_JSON=$($PYTHON_EXEC interactive.py)
+    
+    # Parse JSON (using python one-liner to avoid jq dependency)
+    ARCHIVE_NAME=$(echo "$SELECTION_JSON" | $PYTHON_EXEC -c "import sys, json; print(json.load(sys.stdin)['archive'])")
+    RESTORE_DB_VAL=$(echo "$SELECTION_JSON" | $PYTHON_EXEC -c "import sys, json; print(json.load(sys.stdin)['restore_db'])")
+    RESTORE_STORAGE_VAL=$(echo "$SELECTION_JSON" | $PYTHON_EXEC -c "import sys, json; print(json.load(sys.stdin)['restore_storage'])")
+    
+    if [ "$RESTORE_DB_VAL" == "True" ]; then RESTORE_DB=true; else RESTORE_DB=false; fi
+    if [ "$RESTORE_STORAGE_VAL" == "True" ]; then RESTORE_STORAGE=true; else RESTORE_STORAGE=false; fi
+    
+    echo "Selected Archive: $ARCHIVE_NAME"
+    echo "Restore Database: $RESTORE_DB"
+    echo "Restore Storage: $RESTORE_STORAGE"
+fi
+
 if [ "$IS_TEST_MODE" = true ]; then
     export TARGET_PROJECT_REF="$TEST_SUPABASE_PROJECT_REF"
     export TARGET_DB_PASSWORD="$TEST_SUPABASE_DB_PASSWORD"
@@ -117,31 +142,6 @@ else
         echo "Confirmation failed. Aborted."
         exit 1
     fi
-fi
-
-# INTERACTIVE SELECTION
-RESTORE_DB=true
-RESTORE_STORAGE=true
-ARCHIVE_NAME="Local"
-
-if [ "$SKIP_CONFIRM" = false ]; then
-    echo "Starting interactive selection..."
-    # Run interactive.py and capture JSON
-    # we use a temporary file to capture output reliably or just parse stdout
-    # interactive.py prints only JSON to stdout
-    SELECTION_JSON=$($PYTHON_EXEC interactive.py)
-    
-    # Parse JSON (using python one-liner to avoid jq dependency)
-    ARCHIVE_NAME=$(echo "$SELECTION_JSON" | $PYTHON_EXEC -c "import sys, json; print(json.load(sys.stdin)['archive'])")
-    RESTORE_DB_VAL=$(echo "$SELECTION_JSON" | $PYTHON_EXEC -c "import sys, json; print(json.load(sys.stdin)['restore_db'])")
-    RESTORE_STORAGE_VAL=$(echo "$SELECTION_JSON" | $PYTHON_EXEC -c "import sys, json; print(json.load(sys.stdin)['restore_storage'])")
-    
-    if [ "$RESTORE_DB_VAL" == "True" ]; then RESTORE_DB=true; else RESTORE_DB=false; fi
-    if [ "$RESTORE_STORAGE_VAL" == "True" ]; then RESTORE_STORAGE=true; else RESTORE_STORAGE=false; fi
-    
-    echo "Selected Archive: $ARCHIVE_NAME"
-    echo "Restore Database: $RESTORE_DB"
-    echo "Restore Storage: $RESTORE_STORAGE"
 fi
 
 # HANDLE EXTRACTION
