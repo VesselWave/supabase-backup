@@ -39,6 +39,12 @@ VENV_PATH="./venv"
 mkdir -p "$LOCAL_BACKUP_DIR"
 
 # Check dependencies
+# Check for local supabase CLI and install if missing
+if [ ! -x "./node_modules/.bin/supabase" ]; then
+    echo "Supabase CLI not found in ./node_modules/.bin/supabase. Installing..."
+    npm install supabase
+fi
+
 command -v borg >/dev/null 2>&1 || { echo >&2 "Error: 'borg' is required but not installed. Aborting."; exit 1; }
 
 echo "--- Starting Supabase Backup: $TIMESTAMP ---"
