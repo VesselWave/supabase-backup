@@ -442,6 +442,14 @@ def restore():
         # History Restore
         if os.path.exists(history_schema_path) or os.path.exists(history_data_path):
             print("Restoring migration history...")
+            
+            # Drop and recreate supabase_migrations schema to avoid conflicts with db reset
+            drop_schema_cmd = ["psql", "--host", db_host, "--port", "5432", "--username", "postgres", "--dbname", "postgres",
+                              "--command", "DROP SCHEMA IF EXISTS supabase_migrations CASCADE; CREATE SCHEMA supabase_migrations;"]
+            drop_schema_str = " ".join([f'"{c}"' if " " in c else c for c in drop_schema_cmd])
+            if not run_command(drop_schema_str, env=psql_env):
+                print("Warning: Failed to drop/recreate supabase_migrations schema.")
+            
             history_cmd = ["psql", "--host", db_host, "--port", "5432", "--username", "postgres", "--dbname", "postgres",
                           "--single-transaction", "--variable", "ON_ERROR_STOP=1"]
             
