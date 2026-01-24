@@ -11,116 +11,108 @@ This project provides a robust backup and restore solution for Supabase, designe
   - **Schema Drift**: Captures internal schema changes (`auth`, `storage`) via `supabase db diff`.
 - **Robust Restore**:
   - **Auto-Cleaning**: Automatically sanitizes dumps to remove restricted permissions (e.g., `GRANT ... TO "postgres"`) that fail in managed environments.
-  - **Data Skipping**: smart-skips internal system tables that cause permission errors (e.g., `storage.buckets_vectors`).
-  - **Requirements Check**: Scans dumps for usage of Webhooks, Extensions, and Realtime publications and warns if the target environment needs configuration.
-  - **Resiliency**: Fallback connection logic using Project Ref/Password if full DB URL is missing.
+  - **Schema Patching**: Comments out `ALTER ... OWNER TO "supabase_admin"` to prevent ownership errors.
+  - **Data Skipping**: Smart-skips internal system tables that cause permission errors (e.g., `storage.buckets_vectors`).
+  - **Auto-Wipe**: Recreates the `public` schema and truncates `auth`/`storage` tables before restoration to ensure a clean state.
+  - **Requirements Scanning**: Analyzes backup files for usage of Webhooks, Extensions, and Realtime publications and warns if the target environment needs manual configuration.
+  - **Resiliency**: Implements `session_replication_role = replica` to bypass trigger/constraint conflicts during data load.
 
 ### Storage (`storage.py`)
-- **Full Bucket Sync**: Backs up and restores all storage buckets.
+- **API-Based Sync**: Uses the Supabase Storage API for reliable file transfers without direct S3 access.
+- **Full Bucket Mirroring**:
+  - **Upserting**: Replaces existing files if they've changed.
+  - **Wiping**: Deletes files on the remote bucket that are not present in the backup, ensuring a 1:1 mirror.
 - **Metadata Preservation**: Preserves file metadata (MIME type, cache control) via sidecar JSON files.
-- **Resilient Uploads**: Implements retry logic and memory-buffered uploads to handle network instability.
+- **Resilient Uploads**: Implements retry logic and memory-buffered transfers to handle network instability.
 
 ### Core
 - **Deduplication**: Uses **Borg Backup** for efficient, incremental snapshots.
-- **Retention**: Automatically prunes backups older than 21 days.
+- **Interactive Recovery**: Terminal-based wizard for selecting snapshots and specific components to restore.
+- **Auto-Extraction**: Automatically calculates path depths when extracting from Borg to maintain directory structure.
 - **Self-Contained**: Manages its own Python virtual environment (`venv`) and local `supabase` CLI.
 
 ## Prerequisites
 - [borgbackup](https://www.borgbackup.org/)
-- Python 3
+- Python 3.x
 - Node.js (for local supabase CLI installation)
 
 ## Setup
-1. Copy `.env.example` to `.env`:
-   ```bash
-   cp .env.example .env
-   ```
-2. Fill in your credentials in `.env`.
-   - **Backup Source**: `SUPABASE_PROJECT_REF`, `SUPABASE_ACCESS_TOKEN`, etc.
-   - **Restore Target** (Optional): `TEST_SUPABASE_PROJECT_REF`. Password can be set in `TEST_SUPABASE_DB_PASSWORD` or provided interactively.
-3. Install dependencies:
-   ```bash
-   # This installs the local Supabase CLI and Python venv
-   ./backup.sh
-   # OR manually:
-   npm install supabase@latest
-   python3 -m venv venv
-   ./venv/bin/pip install -r requirements.txt
-   ```
+
+1.  **Clone and Configure**:
+    ```bash
+    cp .env.example .env
+    ```
+2.  **Fill `.env`**:
+    - **Source**: `SUPABASE_PROJECT_REF`, `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`, `SUPABASE_SERVICE_ROLE_KEY`.
+    - **Target (Test)**: `TEST_SUPABASE_PROJECT_REF`, `TEST_SUPABASE_DB_PASSWORD`, `TEST_SUPABASE_SERVICE_ROLE_KEY`.
+3.  **Install Dependencies**:
+    ```bash
+    # This will automatically create the venv and install node dependencies
+    ./backup.sh
+    ```
 
 ## Usage
 
 ### Backup (Daily Operation)
-The main entry point is `backup.sh`, which orchestrates the entire flow:
+The `backup.sh` script orchestrates the entire capture flow:
 ```bash
 ./backup.sh
 ```
-This will:
-1. Update local dependencies.
-2. Dump database (Roles, Schema, Data, History).
-3. Diff system schemas.
-4. Download all Storage buckets.
-5. Create a new Borg archive.
-6. Prune old archives.
+What it does:
+1.  Dumps DB Roles, Schema, and Data.
+2.  Captures `supabase_migrations` history.
+3.  Diffs `auth` and `storage` schemas.
+4.  Downloads all Storage objects and metadata.
+5.  Commits the result to a **Borg** archive called `YYYY-MM-DD_HH-MM-SS`.
+6.  Prunes archives older than 21 days.
 
-### Restore
-The restore process ensures the target environment **exactly mirrors** the backup. 
-- **Database**: The `public` schema is wiped and recreated before restoring data.
-- **Storage**: Files on the remote bucket that are not in the backup are deleted (wiped), and missing/changed files are uploaded.
+### Restore (Point-in-Time Recovery)
+The `restore.sh` script provides two modes:
 
-**Warning: Restore operations are destructive. Use with caution.**
-
-#### 1. Restore to Test Environment (Automated)
-Uses configuration from `.env` (`TEST_SUPABASE_...` variables).
+#### 1. Automated Test Restore
+Restores the **latest local backup** to the test environment defined in `.env`.
 ```bash
-./restore.sh --test
+./restore.sh --test -y
 ```
-*Add `-y` or `--yes` to skip the confirmation prompt (useful for automation).*
 
-#### 2. Restore to Custom Target (Manual / Interactive)
-Run without arguments to start the interactive wizard. You can:
-1.  **Select Backup Source**: Choose to use existing local files or extract a specific snapshot from the **Borg** repository.
-2.  **Select Components**: Choose to restore **Database**, **Storage**, or both.
-
+#### 2. Interactive Wizard
+Run without arguments to start the interactive selection:
 ```bash
 ./restore.sh
 ```
-*You will then be prompted for target credentials and triple-confirmation.*
+- **Select Source**: Choose between `Local` files or any historical snapshot from the **Borg** repository.
+- **Select Components**: Choose to restore **Database**, **Storage**, or both.
+- **Confirm Target**: For non-test projects, you must manually enter the Project Ref and Password to confirm the destructive wipe.
 
 ## System Integration (Systemd)
 
-### 1. Logging
-Logs are stored in `/var/log/`:
-- Backup: `/var/log/supabase-backup.log`
-- Restore: `/var/log/supabase-restore.log`
-
-Setup permissions:
+### 1. Logging Setup
 ```bash
 sudo touch /var/log/supabase-backup.log /var/log/supabase-restore.log
 sudo chown $USER:$USER /var/log/supabase-backup.log /var/log/supabase-restore.log
 ```
 
-### 2. Logrotate
+### 2. Daily Automation
 ```bash
-sudo cp systemd/supabase-backup /etc/logrotate.d/supabase-backup
-```
-
-### 3. Backup Service & Timer (Daily)
-```bash
+# Register the backup timer
 sudo cp systemd/supabase-backup.service systemd/supabase-backup.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now supabase-backup.timer
 ```
 
-### 4. Restore Service (On-Demand / Scheduled)
-The restore service targets the **Test Environment** defined in `.env`.
+### 4. Restore Service (Weekly / Automated)
+The restore service is configured to target the **Test Environment** and runs automatically every week to validate backup integrity. This is why the script includes an automatic update of the `supabase` CLI—to ensure compatibility with the latest platform features during scheduled restores.
+
 ```bash
-sudo cp systemd/supabase-restore.service /etc/systemd/system/
+sudo cp systemd/supabase-restore.service systemd/supabase-restore.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-# Run a one-off restore to test:
+sudo systemctl enable --now supabase-restore.timer
+
+# To trigger a manual run immediately:
 sudo systemctl start supabase-restore.service
 ```
 
 ## Troubleshooting
-- **Permission Denied (Restore)**: The script automatically comments out `GRANT ... TO "postgres"` and skips `storage.buckets_vectors`. If new tables cause issues, add them to `skip_tables` in `database.py`.
-- **Wipe Safety**: Manual restores require you to type the target project reference to confirm, ensuring you don't accidentally wipe a wrong project.
+- **Archive Extraction**: If you manually extract a Borg archive, use `borg extract --strip-components 2`. The `restore.sh` script handles this automatically.
+- **Locked Processes**: The system uses `/tmp/supabase_backup_restore.lock` to prevent concurrent operations.
+- **Role Errors**: If the restore fails on `GRANT` or `OWNER` statements, ensure `database.py` includes the offending role in its `system_roles` list.
