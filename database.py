@@ -190,15 +190,17 @@ def wipe_database(project_ref, db_password):
     """
     print(f"Wiping target project {project_ref} manually using psql...")
     
-    import urllib.parse
     import tempfile
     import shlex
     
-    encoded_password = urllib.parse.quote_plus(db_password)
-    db_url = f"postgresql://postgres:{encoded_password}@db.{project_ref}.supabase.co:5432/postgres"
+    # Use PGPASSWORD environment variable to avoid password in command line
+    env = os.environ.copy()
+    env["PGPASSWORD"] = db_password
+    db_host = f"db.{project_ref}.supabase.co"
 
     # Debug: Check bucket count before wipe
-    run_command(f'psql --dbname "{db_url}" --command "SELECT count(*) as buckets_before FROM storage.buckets;"')
+    cmd = f'psql --host {db_host} --port 5432 --username postgres --dbname postgres --command "SELECT count(*) as buckets_before FROM storage.buckets;"'
+    run_command(cmd, env=env)
 
     wipe_query = """
     -- 1. Wipe public schema
@@ -254,8 +256,8 @@ def wipe_database(project_ref, db_password):
         temp_sql_path = tf.name
 
     try:
-        cmd = ["psql", "--dbname", db_url, "--file", temp_sql_path]
-        if not run_command(" ".join([shlex.quote(c) for c in cmd])):
+        cmd = ["psql", "--host", db_host, "--port", "5432", "--username", "postgres", "--dbname", "postgres", "--file", temp_sql_path]
+        if not run_command(" ".join([shlex.quote(c) for c in cmd]), env=env):
             print("Error: Manual database wipe failed.")
             sys.exit(1)
     finally:
@@ -263,7 +265,8 @@ def wipe_database(project_ref, db_password):
             os.remove(temp_sql_path)
 
     # Debug: Check bucket count after wipe
-    run_command(f'psql --dbname "{db_url}" --command "SELECT count(*) as buckets_after FROM storage.buckets;"')
+    cmd = f'psql --host {db_host} --port 5432 --username postgres --dbname postgres --command "SELECT count(*) as buckets_after FROM storage.buckets;"'
+    run_command(cmd, env=env)
     print("Database wiped successfully.")
 
 def backup():
@@ -286,8 +289,6 @@ def backup():
     check_tool("supabase", "Error: 'supabase' CLI not found. Please run 'npm install supabase' or ensure it is in your PATH.", path=env["PATH"])
 
     link_cmd = f"supabase link --project-ref {project_ref}"
-    if db_password:
-        link_cmd += f" --password '{db_password}'"
     
     if not run_command(link_cmd, env=env):
         sys.exit(1)
@@ -326,9 +327,8 @@ def restore():
     project_ref = get_env_var("TARGET_PROJECT_REF")
     db_password = get_env_var("TARGET_DB_PASSWORD")
     
-    import urllib.parse
-    encoded_password = urllib.parse.quote_plus(db_password)
-    db_url = f"postgresql://postgres:{encoded_password}@db.{project_ref}.supabase.co:5432/postgres"
+    # Use PGPASSWORD environment variable to avoid password in command line
+    db_host = f"db.{project_ref}.supabase.co"
     
     local_backup_dir = os.path.expanduser(get_env_var("LOCAL_BACKUP_DIR", required=False) or "./backups")
     source_dir = os.path.join(local_backup_dir, "database")
@@ -381,7 +381,7 @@ def restore():
         env["PATH"] = f"{node_bin}{os.pathsep}{env.get('PATH', '')}"
         
         # Link to the target project
-        link_cmd = f"supabase link --project-ref {project_ref} --password '{db_password}'"
+        link_cmd = f"supabase link --project-ref {project_ref}"
         if not run_command(link_cmd, env=env):
             print("Error: Failed to link to target project.")
             sys.exit(1)
@@ -396,7 +396,12 @@ def restore():
         
         # Construct command list manually to interleave SET command
         # SET session_replication_role = replica is at the START to prevent triggers during schema/roles
-        cmd = ["psql", "--single-transaction", "--variable", "ON_ERROR_STOP=1"]
+        # Use PGPASSWORD environment variable to avoid password in command line
+        psql_env = env.copy()
+        psql_env["PGPASSWORD"] = db_password
+        
+        cmd = ["psql", "--host", db_host, "--port", "5432", "--username", "postgres", "--dbname", "postgres",
+               "--single-transaction", "--variable", "ON_ERROR_STOP=1"]
         cmd.extend(["--command", "SET session_replication_role = replica"])
         
         # Truncate storage.buckets to remove any buckets created by migrations during reset
@@ -427,28 +432,26 @@ def restore():
             cmd.extend(["--file", final_data_path])
         else:
             print(f"Warning: {data_path} not found. Skipping.")
-
-        cmd.extend(["--dbname", db_url])
         
-        cmd_str = " ".join([f'"{c}"' if " " in c or c.startswith("postgresql://") else c for c in cmd])
+        cmd_str = " ".join([f'"{c}"' if " " in c else c for c in cmd])
         
-        if not run_command(cmd_str):
+        if not run_command(cmd_str, env=psql_env):
             print("Error: Main restore failed.")
             sys.exit(1)
 
         # History Restore
         if os.path.exists(history_schema_path) or os.path.exists(history_data_path):
             print("Restoring migration history...")
-            history_cmd = ["psql", "--single-transaction", "--variable", "ON_ERROR_STOP=1"]
+            history_cmd = ["psql", "--host", db_host, "--port", "5432", "--username", "postgres", "--dbname", "postgres",
+                          "--single-transaction", "--variable", "ON_ERROR_STOP=1"]
             
             final_history_schema_path = clean_history_schema_path or history_schema_path
             if os.path.exists(final_history_schema_path): history_cmd.extend(["--file", final_history_schema_path])
             
             if os.path.exists(history_data_path): history_cmd.extend(["--file", history_data_path])
-            history_cmd.extend(["--dbname", db_url])
             
-            history_cmd_str = " ".join([f'"{c}"' if " " in c or c.startswith("postgresql://") else c for c in history_cmd])
-            if not run_command(history_cmd_str):
+            history_cmd_str = " ".join([f'"{c}"' if " " in c else c for c in history_cmd])
+            if not run_command(history_cmd_str, env=psql_env):
                 print("Error: History restore failed.")
                 sys.exit(1)
 

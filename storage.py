@@ -30,6 +30,16 @@ class StorageMigrator:
         if self.session:
             await self.session.close()
 
+    def _sanitize_error(self, message: str) -> str:
+        """Sanitize error messages to prevent service role key exposure."""
+        import re
+        # Mask the service role key if it appears in error messages
+        sanitized = re.sub(r'(eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*)', '***JWT_TOKEN***', message)
+        # Also mask any occurrence of the actual key
+        if self.key:
+            sanitized = sanitized.replace(self.key, '***SERVICE_ROLE_KEY***')
+        return sanitized
+
     async def _get_session(self) -> aiohttp.ClientSession:
         if self.session is None or self.session.closed:
             self.session = aiohttp.ClientSession()
@@ -60,7 +70,7 @@ class StorageMigrator:
         async with resp:
             if resp.status != 200:
                 text = await resp.text()
-                raise Exception(f"Failed to list buckets: {resp.status} - {text}")
+                raise Exception(f"Failed to list buckets: {resp.status} - {self._sanitize_error(text)}")
             return await resp.json()
 
     async def create_bucket_if_missing(self, bucket: Dict[str, Any]):
@@ -79,7 +89,7 @@ class StorageMigrator:
         async with resp:
             if resp.status not in [200, 201, 400, 409]:
                 text = await resp.text()
-                raise Exception(f"Failed to create bucket {bucket['name']}: {resp.status} - {text}")
+                raise Exception(f"Failed to create bucket {bucket['name']}: {resp.status} - {self._sanitize_error(text)}")
             print(f"Ensured bucket exists: {bucket['name']}")
 
     async def recursive_list_files(self, bucket_name: str, path: str = "") -> List[Dict[str, Any]]:
@@ -102,7 +112,8 @@ class StorageMigrator:
             )
             async with resp:
                 if resp.status != 200:
-                    print(f"Error listing {bucket_name}/{path}: {await resp.text()}")
+                    error_text = await resp.text()
+                    print(f"Error listing {bucket_name}/{path}: {self._sanitize_error(error_text)}")
                     break
                 
                 items = await resp.json()
@@ -157,7 +168,8 @@ class StorageMigrator:
                             async for chunk in resp.content.iter_chunked(1024*1024):
                                 f.write(chunk)
                     else:
-                        print(f"Failed to download {full_path}: {resp.status}")
+                        error_text = await resp.text() if resp.status != 200 else ""
+                        print(f"Failed to download {full_path}: {resp.status} - {self._sanitize_error(error_text)}")
 
         tasks = [_download(f) for f in files]
         for f in tqdm.tqdm(asyncio.as_completed(tasks), total=len(tasks), desc=f"Backing up {bucket_name}"):
@@ -220,7 +232,7 @@ class StorageMigrator:
                 async with resp:
                     if resp.status not in [200, 201]:
                         text = await resp.text()
-                        print(f"Failed to upload {rel_path}: {resp.status} - {text}")
+                        print(f"Failed to upload {rel_path}: {resp.status} - {self._sanitize_error(text)}")
 
         tasks = [_upload(item) for item in files_to_upload]
         for f in tqdm.tqdm(asyncio.as_completed(tasks), total=len(tasks), desc=f"Restoring {bucket_name}"):
@@ -235,7 +247,8 @@ class StorageMigrator:
         )
         async with resp:
             if resp.status != 200:
-                print(f"Failed to delete {path}: {resp.status}")
+                error_text = await resp.text() if resp.status != 200 else ""
+                print(f"Failed to delete {path}: {resp.status} - {self._sanitize_error(error_text)}")
 
     async def wipe_bucket(self, bucket_name: str, source_dir: str):
         """
