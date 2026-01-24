@@ -163,8 +163,19 @@ if [ "$ARCHIVE_NAME" != "Local" ]; then
 
     echo "Extraction Target: $BORG_EXTRACT_DIR"
     
+    echo "Calculating strip path from archive contents..."
+    
+    # 1. Get archive file list
+    items_json=$(borg list --json "$BORG_REPO::$ARCHIVE_NAME")
+    
+    # 2. Determine common path using Python helper
+    # Logic: Find common path. If ends in 'database' or 'storage', step back one level.
+    STRIP_COUNT=$(echo "$items_json" | $PYTHON_EXEC interactive.py --calculate-strip)
+    
+    echo "Detected strip count: $STRIP_COUNT"
+    
     cd "$BORG_EXTRACT_DIR"
-    borg extract --list "$BORG_REPO::$ARCHIVE_NAME"
+    borg extract --list --strip-components "$STRIP_COUNT" "$BORG_REPO::$ARCHIVE_NAME"
     cd - > /dev/null
     echo "Extraction complete."
     
