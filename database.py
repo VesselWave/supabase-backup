@@ -76,18 +76,41 @@ def clean_roles_file(file_path):
     print(f"Cleaning roles file: {file_path}")
     temp_path = file_path + ".tmp"
     
+    # System roles that should not be created/altered during restore
+    # authenticatiod, anon, service_role are default Supabase roles
+    # postgres, supabase_admin, dashboard_user, supabase_auth_admin consistute system roles
+    # cli_login_postgres seems to be a CLI specific role
+    system_roles = [
+        "postgres", "anon", "authenticated", "service_role", 
+        "supabase_admin", "supabase_auth_admin", "dashboard_user", 
+        "gcp_superuser", "gcp_cloudsql_admin", "admin", "root",
+        "cli_login_postgres"
+    ]
+    
     with open(file_path, "r", encoding="utf-8") as f_in, \
          open(temp_path, "w", encoding="utf-8") as f_out:
         for line in f_in:
-            # Granting 'postgres' role is restricted
-            # Handle both quoted and unquoted variants
-            if ("GRANT postgres TO" in line or 'GRANT "postgres" TO' in line) and not line.strip().startswith("--"):
+            line_strip = line.strip()
+            # 1. Check for GRANT <role> TO ...
+            if ("GRANT postgres TO" in line or 'GRANT "postgres" TO' in line) and not line_strip.startswith("--"):
                 f_out.write(f"-- {line}")
-            # Granting to 'supabase_admin' might also fail depending on context, but postgres is the main one seen.
-            elif ("GRANT supabase_admin TO" in line or 'GRANT "supabase_admin" TO' in line) and not line.strip().startswith("--"):
+            elif ("GRANT supabase_admin TO" in line or 'GRANT "supabase_admin" TO' in line) and not line_strip.startswith("--"):
                 f_out.write(f"-- {line}")
+            # 2. Check for CREATE ROLE <system_role> or ALTER ROLE <system_role>
             else:
-                f_out.write(line)
+                is_system_role_line = False
+                for role in system_roles:
+                    # Check for "CREATE ROLE "role"" or "CREATE ROLE role"
+                    # We utilize a simple check; explicit parsing matches strict quoted/unquoted
+                    if (f'CREATE ROLE "{role}"' in line or f"CREATE ROLE {role}" in line or
+                        f'ALTER ROLE "{role}"' in line or f"ALTER ROLE {role}" in line):
+                        is_system_role_line = True
+                        break
+                
+                if is_system_role_line and not line_strip.startswith("--"):
+                     f_out.write(f"-- {line}")
+                else:
+                     f_out.write(line)
     
     os.replace(temp_path, file_path)
 

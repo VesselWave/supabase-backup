@@ -2,3 +2,4 @@ requests
 python-dotenv
 aiohttp
 tqdm
+simple-term-menu

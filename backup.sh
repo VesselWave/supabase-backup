@@ -15,6 +15,13 @@ else
     exit 1
 fi
 
+# Locking mechanism to prevent concurrent backup/restore
+exec 200>/tmp/supabase_backup_restore.lock
+if ! flock -n 200; then
+    echo "Error: Another backup or restore process is running."
+    exit 1
+fi
+
 # Borg configuration for non-interactive use
 export BORG_UNKNOWN_UNENCRYPTED_REPO_ACCESS_IS_OK=yes
 export BORG_RELOCATED_REPO_ACCESS_IS_OK=yes

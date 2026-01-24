@@ -77,12 +77,15 @@ Uses configuration from `.env` (`TEST_SUPABASE_...` variables).
 ```
 *Add `-y` or `--yes` to skip the confirmation prompt (useful for automation).*
 
-#### 2. Restore to Custom Target (Manual)
-Run without arguments to restore to any project. You will be prompted for the Project Ref, Database Password, and Service Role Key.
+#### 2. Restore to Custom Target (Manual / Interactive)
+Run without arguments to start the interactive wizard. You can:
+1.  **Select Backup Source**: Choose to use existing local files or extract a specific snapshot from the **Borg** repository.
+2.  **Select Components**: Choose to restore **Database**, **Storage**, or both.
+
 ```bash
 ./restore.sh
 ```
-*Requires triple-confirmation to prevent accidental data loss.*
+*You will then be prompted for target credentials and triple-confirmation.*
 
 ## System Integration (Systemd)
 
