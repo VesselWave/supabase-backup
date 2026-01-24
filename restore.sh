@@ -57,7 +57,6 @@ if [ "$IS_TEST_MODE" = true ]; then
         echo "Confirmation skipped (--yes)."
     else
         read -p "Restoring to TEST instance. This will WIPE ALL DATA and mirror the backup. Continue? (y/n) " -n 1 -r
-        echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
             echo "Aborted."
             exit 1
