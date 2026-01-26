@@ -131,6 +131,12 @@ else
     echo
     if [ -z "$INPUT_SERVICE_KEY" ]; then echo "Service Role Key is required."; exit 1; fi
     export TARGET_SERVICE_ROLE_KEY="$INPUT_SERVICE_KEY"
+    
+    # Access Token prompt (hidden input)
+    read -s -p "Enter Supabase Access Token: " INPUT_ACCESS_TOKEN
+    echo
+    if [ -z "$INPUT_ACCESS_TOKEN" ]; then echo "Supabase Access Token is required."; exit 1; fi
+    export SUPABASE_ACCESS_TOKEN="$INPUT_ACCESS_TOKEN"
 
     echo ""
     echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
