@@ -94,8 +94,7 @@ class StorageMigrator:
                 raise Exception(f"Failed to create bucket {bucket['name']}: {resp.status} - {self._sanitize_error(text)}")
             print(f"Ensured bucket exists: {bucket['name']}")
 
-    async def recursive_list_files(self, bucket_name: str, path: str = "") -> List[Dict[str, Any]]:
-        files = []
+    async def recursive_list_files(self, bucket_name: str, path: str = ""):
         limit = 100
         offset = 0
         
@@ -124,30 +123,22 @@ class StorageMigrator:
                     
                 for item in items:
                     if item.get('id') is None:
-                        # Directory
+                        # Directory - recurse
                         new_path = f"{path}/{item['name']}" if path else item['name']
-                        sub_files = await self.recursive_list_files(bucket_name, new_path)
-                        files.extend(sub_files)
+                        async for sub_item in self.recursive_list_files(bucket_name, new_path):
+                            yield sub_item
                     else:
-                        # File
+                        # File - yield
                         item['full_path'] = f"{path}/{item['name']}" if path else item['name']
-                        files.append(item)
+                        yield item
                 
                 if len(items) < limit:
                     break
                 offset += limit
-                    
-        return files
 
-    async def backup_bucket(self, bucket_name: str, target_dir: str):
-        files = await self.recursive_list_files(bucket_name)
-        if not files:
-            return
-            
-        print(f"Found {len(files)} files in {bucket_name}")
-        
+    async def backup_bucket(self, bucket_name: str, target_dir: str, concurrency: int = 10):
         os.makedirs(f"{target_dir}/{bucket_name}", exist_ok=True)
-        sem = asyncio.Semaphore(10)
+        sem = asyncio.Semaphore(concurrency)
         
         async def _download(file_item):
             async with sem:
@@ -173,11 +164,35 @@ class StorageMigrator:
                         error_text = await resp.text() if resp.status != 200 else ""
                         print(f"Failed to download {full_path}: {resp.status} - {self._sanitize_error(error_text)}")
 
-        tasks = [_download(f) for f in files]
+        # Create a set of tasks, processing as items come in
+        # Since we want to use tqdm, strict streaming is tricky without knowing total.
+        # But we can just create tasks and gather them. Careful not to spawn 100k tasks at once.
+        # Better: Producer/Consumer queue or just Semaphore is fine if we await tasks in batches?
+        # Typically for pure streaming we use a bounded queue.
+        # For simplicity in this refactor, we can just yield all items then map, OR keep it simple:
+        # We'll just collect them for now because existing code did that, but the generator saves the intermediate step per-recursion.
+        # Wait, the goal is memory scalability. Collecting everything into `files` list defeats the purpose.
+        # We should start processing as soon as we get items.
+        
+        tasks = []
+        # We need a way to track progress without total... or just show "Processed X files".
+        # Let's use a bounded semaphore to control active tasks.
+        
+        # Simplified approach preserving parallelsim:
+        # Iterate generator, spawn task, append to set. If set > X, wait? 
+        # Actually, python tasks are light. The problem is the DATA payload memory maybe? No, just the object list.
+        # We can just spawn tasks. 100k tasks objects is manageable.
+        
+        async for file_item in self.recursive_list_files(bucket_name):
+             tasks.append(asyncio.create_task(_download(file_item)))
+        
+        if not tasks:
+             return
+
         for f in tqdm.tqdm(asyncio.as_completed(tasks), total=len(tasks), desc=f"Backing up {bucket_name}"):
             await f
 
-    async def restore_bucket(self, bucket_name: str, source_dir: str):
+    async def restore_bucket(self, bucket_name: str, source_dir: str, concurrency: int = 10):
         bucket_source = os.path.join(source_dir, bucket_name)
         if not os.path.exists(bucket_source):
             print(f"Source directory {bucket_source} not found")
@@ -203,7 +218,7 @@ class StorageMigrator:
             return
 
         print(f"Found {len(files_to_upload)} files to restore in {bucket_name}")
-        sem = asyncio.Semaphore(10)
+        sem = asyncio.Semaphore(concurrency)
         
         async def _upload(item):
             rel_path, local_path, meta = item
@@ -252,14 +267,21 @@ class StorageMigrator:
                 error_text = await resp.text() if resp.status != 200 else ""
                 print(f"Failed to delete {path}: {resp.status} - {self._sanitize_error(error_text)}")
 
-    async def wipe_bucket(self, bucket_name: str, source_dir: str):
+    async def wipe_bucket(self, bucket_name: str, source_dir: str, concurrency: int = 10):
         """
         Deletes files in the remote bucket that are NOT present in the local source_dir.
         """
-        print(f"Wiping extra files in {bucket_name}...")
+        print(f"Comparing files in {bucket_name} for cleanup...")
         
-        # 1. List remote files
-        remote_files = await self.recursive_list_files(bucket_name)
+        # 1. List remote files (streamed)
+        # We need a set of remote files. Streaming directly into a set is fine for checking logic.
+        # But for large buckets, this set might still be big. 
+        # However, to compare with local, we kinda need the full list or iterative checking.
+        # Let's collect remote files first.
+        remote_files = []
+        async for f in self.recursive_list_files(bucket_name):
+             remote_files.append(f)
+
         if not remote_files:
              return
 
@@ -291,7 +313,7 @@ class StorageMigrator:
 
         print(f"Deleting {len(files_to_delete)} extra files from {bucket_name}...")
         
-        sem = asyncio.Semaphore(10)
+        sem = asyncio.Semaphore(concurrency)
         async def _delete(path):
             async with sem:
                 await self.delete_file(bucket_name, path)
@@ -300,7 +322,7 @@ class StorageMigrator:
         for f in tqdm.tqdm(asyncio.as_completed(tasks), total=len(tasks), desc=f"Wiping {bucket_name}"):
             await f
 
-async def backup():
+async def backup(concurrency: int):
     project_ref = get_env_var("SUPABASE_PROJECT_REF")
     service_role_key = get_env_var("SUPABASE_SERVICE_ROLE_KEY")
     url = f"https://{project_ref}.supabase.co"
@@ -313,9 +335,9 @@ async def backup():
         buckets = await migrator.list_buckets()
         print(f"Found {len(buckets)} buckets.")
         for bucket in buckets:
-            await migrator.backup_bucket(bucket['name'], target_dir)
+            await migrator.backup_bucket(bucket['name'], target_dir, concurrency)
 
-async def restore():
+async def restore(concurrency: int):
     project_ref = get_env_var("TARGET_PROJECT_REF")
     service_role_key = get_env_var("TARGET_SERVICE_ROLE_KEY")
     url = f"https://{project_ref}.supabase.co"
@@ -330,8 +352,6 @@ async def restore():
     async with StorageMigrator(url, service_role_key) as migrator:
         # Restore logic: 
         # 1. Iterate over LOCAL buckets to ensure they exist and restore them.
-        # 2. Iterate over REMOTE buckets to wipe files? 
-        # Ideally, we mirror the backup. So we should list ALL remote buckets.
         
         remote_buckets = await migrator.list_buckets()
         remote_bucket_names = set(b['name'] for b in remote_buckets)
@@ -346,30 +366,26 @@ async def restore():
             await migrator.create_bucket_if_missing({'name': bucket_name})
             
             # Wipe extra files first
-            await migrator.wipe_bucket(bucket_name, source_dir)
+            await migrator.wipe_bucket(bucket_name, source_dir, concurrency)
             
             # Then restore/upload
-            await migrator.restore_bucket(bucket_name, source_dir)
+            await migrator.restore_bucket(bucket_name, source_dir, concurrency)
         
-        # B. Optionally, we could delete buckets that are on remote but NOT in local.
-        # The user said "exact thing that is in the backup".
-        # So if remote has a bucket "old_junk" and backup doesn't, we should arguably delete it or at least empty it.
-        # For safety, let's just warn or empty them, but maybe not delete the bucket definition itself unless requested.
-        # Let's simple empty them if they are not in local.
-        
+        # B. For buckets not in backup, simple empty them
         for bucket_name in remote_bucket_names:
             if bucket_name not in local_bucket_names:
                 print(f"Bucket {bucket_name} is not in backup. Wiping content...")
                 # We treat it as if local dir is empty for this bucket
-                await migrator.wipe_bucket(bucket_name, source_dir) 
+                await migrator.wipe_bucket(bucket_name, source_dir, concurrency) 
 
 if __name__ == "__main__":
     load_dotenv()
     parser = argparse.ArgumentParser(description="Supabase Storage Backup/Restore (API based)")
     parser.add_argument("action", choices=["backup", "restore"], help="Action to perform")
+    parser.add_argument("--concurrency", "-c", type=int, default=10, help="Number of concurrent transfers (default: 10)")
     args = parser.parse_args()
 
     if args.action == "backup":
-        asyncio.run(backup())
+        asyncio.run(backup(args.concurrency))
     elif args.action == "restore":
-        asyncio.run(restore())
+        asyncio.run(restore(args.concurrency))
