@@ -3,7 +3,10 @@ set -e
 
 # Logging configuration
 LOG_DIR="$HOME/.config/supabase-backup/logs"
-mkdir -p "$LOG_DIR"
+if ! mkdir -p "$LOG_DIR"; then
+    echo "Error: Failed to create log directory $LOG_DIR" >&2
+    exit 1
+fi
 LOG_FILE="$LOG_DIR/backup.log"
 
 # Redirect stdout and stderr to the log file while keeping stdout on the terminal
@@ -36,9 +39,15 @@ export BORG_RELOCATED_REPO_ACCESS_IS_OK=yes
 
 # Configuration
 # Expand variables like $HOME or ~ if they exist in the strings
-LOCAL_BACKUP_DIR=$(eval echo "${LOCAL_BACKUP_DIR:-./backups}")
+LOCAL_BACKUP_DIR="${LOCAL_BACKUP_DIR:-./backups}"
+if [[ "$LOCAL_BACKUP_DIR" == "~"* ]]; then
+    LOCAL_BACKUP_DIR="${LOCAL_BACKUP_DIR/#\~/$HOME}"
+fi
 DUMP_DIR="$LOCAL_BACKUP_DIR"
-BORG_REPO=$(eval echo "${BORG_REPO:-./borg-repo}")
+BORG_REPO="${BORG_REPO:-./borg-repo}"
+if [[ "$BORG_REPO" == "~"* ]]; then
+    BORG_REPO="${BORG_REPO/#\~/$HOME}"
+fi
 RETENTION_DAYS="${BORG_RETENTION_DAYS:-21}"
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
 VENV_PATH="./venv"
