@@ -137,6 +137,8 @@ class StorageMigrator:
                 offset += limit
 
     async def backup_bucket(self, bucket_name: str, target_dir: str, concurrency: int = 10):
+        print(f"Backing up bucket '{bucket_name}'...")
+        
         os.makedirs(f"{target_dir}/{bucket_name}", exist_ok=True)
         sem = asyncio.Semaphore(concurrency)
         
@@ -177,6 +179,8 @@ class StorageMigrator:
 
         for f in tqdm.tqdm(asyncio.as_completed(tasks), total=len(tasks), desc=f"Backing up {bucket_name}"):
             await f
+        
+        print(f"Done backing up '{bucket_name}'")
 
     async def restore_bucket(self, bucket_name: str, source_dir: str, concurrency: int = 10):
         bucket_source = os.path.join(source_dir, bucket_name)
@@ -203,7 +207,7 @@ class StorageMigrator:
         if not files_to_upload:
             return
 
-        print(f"Found {len(files_to_upload)} files to restore in {bucket_name}")
+        print(f"Restoring bucket '{bucket_name}'...")
         sem = asyncio.Semaphore(concurrency)
         
         async def _upload(item):
@@ -240,6 +244,8 @@ class StorageMigrator:
         tasks = [_upload(item) for item in files_to_upload]
         for f in tqdm.tqdm(asyncio.as_completed(tasks), total=len(tasks), desc=f"Restoring {bucket_name}"):
             await f
+        
+        print(f"Done restoring '{bucket_name}'")
 
     async def delete_file(self, bucket_name: str, path: str):
         encoded_path = quote(path)
@@ -257,7 +263,7 @@ class StorageMigrator:
         """
         Deletes files in the remote bucket that are NOT present in the local source_dir.
         """
-        print(f"Comparing files in {bucket_name} for cleanup...")
+        print(f"Cleaning bucket '{bucket_name}'...")
         
         # 1. Collect all remote files to compare against local files.
         # We need the full list to determine deletions.
@@ -291,10 +297,8 @@ class StorageMigrator:
                 files_to_delete.append(rf['full_path'])
         
         if not files_to_delete:
-            print(f"No extra files found in {bucket_name}.")
+            print(f"Done cleaning '{bucket_name}'")
             return
-
-        print(f"Deleting {len(files_to_delete)} extra files from {bucket_name}...")
         
         sem = asyncio.Semaphore(concurrency)
         async def _delete(path):
@@ -304,6 +308,8 @@ class StorageMigrator:
         tasks = [_delete(p) for p in files_to_delete]
         for f in tqdm.tqdm(asyncio.as_completed(tasks), total=len(tasks), desc=f"Wiping {bucket_name}"):
             await f
+        
+        print(f"Done cleaning '{bucket_name}'")
 
 async def backup(concurrency: int):
     project_ref = get_env_var("SUPABASE_PROJECT_REF")
@@ -335,6 +341,7 @@ async def restore(concurrency: int):
     async with StorageMigrator(url, service_role_key) as migrator:
         # Restore logic: 
         # 1. Iterate over LOCAL buckets to ensure they exist and restore them.
+        print("Fetching bucket list...")
         
         remote_buckets = await migrator.list_buckets()
         remote_bucket_names = set(b['name'] for b in remote_buckets)
