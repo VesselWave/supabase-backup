@@ -46,7 +46,7 @@ if [ ! -d "$VENV_PATH" ]; then
     echo "Creating Python virtual environment..."
     python3 -m venv "$VENV_PATH"
 fi
-"$VENV_PATH/bin/pip" install -r requirements.txt > /dev/null
+"$VENV_PATH/bin/pip" install -r requirements.txt
 
 PYTHON_EXEC="$VENV_PATH/bin/python3"
 

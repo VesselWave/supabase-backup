@@ -4,6 +4,13 @@ set -e
 # Supabase Backup Installation Script
 # This script installs systemd services and configures paths based on the current location.
 
+# Check for required tools
+if ! command -v envsubst >/dev/null 2>&1; then
+    echo "Error: 'envsubst' is required but not installed."
+    echo "Please install it (usually part of 'gettext' or 'gettext-base' package)."
+    exit 1
+fi
+
 INSTALL_DIR=$(pwd)
 COPY_TARGET=""
 
