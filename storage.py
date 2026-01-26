@@ -11,6 +11,10 @@ from dotenv import load_dotenv
 
 from util import get_env_var
 
+def _should_show_progress() -> bool:
+    """Check if we should show progress bars (interactive terminal)."""
+    return sys.stderr.isatty()
+
 class StorageMigrator:
     def __init__(self, url: str, key: str):
         self.url = url.rstrip('/')
@@ -177,7 +181,8 @@ class StorageMigrator:
         if not tasks:
              return
 
-        for f in tqdm.tqdm(asyncio.as_completed(tasks), total=len(tasks), desc=f"Backing up {bucket_name}"):
+        for f in tqdm.tqdm(asyncio.as_completed(tasks), total=len(tasks), desc=f"Backing up {bucket_name}", 
+                           disable=not _should_show_progress(), mininterval=5.0):
             await f
         
         print(f"Done backing up '{bucket_name}'")
@@ -242,7 +247,8 @@ class StorageMigrator:
                         print(f"Failed to upload {rel_path}: {resp.status} - {self._sanitize_error(text)}")
 
         tasks = [_upload(item) for item in files_to_upload]
-        for f in tqdm.tqdm(asyncio.as_completed(tasks), total=len(tasks), desc=f"Restoring {bucket_name}"):
+        for f in tqdm.tqdm(asyncio.as_completed(tasks), total=len(tasks), desc=f"Restoring {bucket_name}", 
+                           disable=not _should_show_progress(), mininterval=5.0):
             await f
         
         print(f"Done restoring '{bucket_name}'")
@@ -306,7 +312,8 @@ class StorageMigrator:
                 await self.delete_file(bucket_name, path)
         
         tasks = [_delete(p) for p in files_to_delete]
-        for f in tqdm.tqdm(asyncio.as_completed(tasks), total=len(tasks), desc=f"Wiping {bucket_name}"):
+        for f in tqdm.tqdm(asyncio.as_completed(tasks), total=len(tasks), desc=f"Wiping {bucket_name}", 
+                           disable=not _should_show_progress(), mininterval=5.0):
             await f
         
         print(f"Done cleaning '{bucket_name}'")
