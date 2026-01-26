@@ -64,6 +64,8 @@ fi
 
 command -v borg >/dev/null 2>&1 || { echo >&2 "Error: 'borg' is required but not installed. Aborting."; exit 1; }
 
+echo "--- Starting Supabase Backup: $TIMESTAMP ---"
+
 # Enforce Container Runtime (Podman or Docker)
 if command -v podman >/dev/null 2>&1; then
     # Default to Podman if available
@@ -82,8 +84,6 @@ else
     echo "Error: Neither 'podman' nor 'docker' is installed. One is required."
     exit 1
 fi
-
-echo "--- Starting Supabase Backup: $TIMESTAMP ---"
 
 # 1. Handle Python Virtual Environment
 if [ ! -d "$VENV_PATH" ]; then
