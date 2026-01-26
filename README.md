@@ -96,17 +96,15 @@ sudo loginctl enable-linger $USER
 ### 2. Install Services
 User services live in `~/.config/systemd/user/`.
 ```bash
-# Create directory
-mkdir -p ~/.config/systemd/user/
+# Run the installation script
+./install.sh
 
-# Copy service files
-cp systemd/supabase-backup.service systemd/supabase-backup.timer ~/.config/systemd/user/
-cp systemd/supabase-restore.service systemd/supabase-restore.timer ~/.config/systemd/user/
-
-> **Important**: The service files assume the repository is located at `~/repos/supabase-backup`. If you cloned it somewhere else, you **must edit** `~/.config/systemd/user/supabase-backup.service` and `~/.config/systemd/user/supabase-restore.service` to point to the correct `WorkingDirectory` and `ExecStart` paths.
-
-# Reload user daemon
-systemctl --user daemon-reload
+# The script will:
+# 1. Create the systemd user directory if it doesn't exist
+# 2. Copy service/timer files
+# 3. Automatically update paths to matches your current installation directory
+# 4. Reload the systemd daemon
+# 5. Generate a corrected logrotate configuration file
 ```
 
 ### 3. Enable Automation
