@@ -5,6 +5,44 @@ set -e
 # This script installs systemd services and configures paths based on the current location.
 
 INSTALL_DIR=$(pwd)
+TARGET_DIR="$HOME/.local/share/supabase-backup"
+IN_PLACE=false
+
+# Argument parsing
+for arg in "$@"; do
+    case $arg in
+        --in-place)
+            IN_PLACE=true
+            ;;
+    esac
+done
+
+if [ "$IN_PLACE" = true ]; then
+    echo "Installing in-place... (Directory: $INSTALL_DIR)"
+else
+    echo "Installing to persistent location: $TARGET_DIR"
+    mkdir -p "$TARGET_DIR"
+    
+    # Copy files (excluding venv, .git, and node_modules to ensure clean state)
+    echo "Copying files..."
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -av --exclude 'venv' --exclude '.git' --exclude 'node_modules' --exclude 'backups' . "$TARGET_DIR/"
+    else
+        # Fallback to cp
+        cp -R . "$TARGET_DIR/"
+        rm -rf "$TARGET_DIR/venv" "$TARGET_DIR/.git" "$TARGET_DIR/backups" "$TARGET_DIR/node_modules"
+    fi
+    
+    # Update INSTALL_DIR to point to the new location
+    INSTALL_DIR="$TARGET_DIR"
+    
+    # Install dependencies in the new location if needed
+    if [ ! -d "$INSTALL_DIR/node_modules" ]; then
+        echo "Installing npm dependencies in $INSTALL_DIR..."
+        (cd "$INSTALL_DIR" && npm install)
+    fi
+fi
+
 USER_SYSTEMD_DIR="$HOME/.config/systemd/user"
 LOG_DIR="$HOME/.config/supabase-backup/logs"
 
