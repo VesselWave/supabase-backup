@@ -32,6 +32,7 @@ This project provides a robust backup and restore solution for Supabase, designe
 - **Self-Contained**: Manages its own Python virtual environment (`venv`) and local `supabase` CLI.
 
 ## Prerequisites
+- **Podman** (Docker is NOT supported for security reasons)
 - [borgbackup](https://www.borgbackup.org/)
 - Python 3.x
 - Node.js (for local supabase CLI installation)
@@ -86,30 +87,55 @@ Run without arguments to start the interactive selection:
 
 ## System Integration (Systemd)
 
-### 1. Logging Setup
+### 1. Enable User Services (Linger)
+Allow your user services to run even when you are not logged in:
 ```bash
-sudo touch /var/log/supabase-backup.log /var/log/supabase-restore.log
-sudo chown $USER:$USER /var/log/supabase-backup.log /var/log/supabase-restore.log
+sudo loginctl enable-linger $USER
 ```
 
-### 2. Daily Automation
+### 2. Install Services
+User services live in `~/.config/systemd/user/`.
 ```bash
-# Register the backup timer
-sudo cp systemd/supabase-backup.service systemd/supabase-backup.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now supabase-backup.timer
+# Create directory
+mkdir -p ~/.config/systemd/user/
+
+# Copy service files
+cp systemd/supabase-backup.service systemd/supabase-backup.timer ~/.config/systemd/user/
+cp systemd/supabase-restore.service systemd/supabase-restore.timer ~/.config/systemd/user/
+
+> **Important**: The service files assume the repository is located at `~/repos/supabase-backup`. If you cloned it somewhere else, you **must edit** `~/.config/systemd/user/supabase-backup.service` and `~/.config/systemd/user/supabase-restore.service` to point to the correct `WorkingDirectory` and `ExecStart` paths.
+
+# Reload user daemon
+systemctl --user daemon-reload
 ```
 
-### 4. Restore Service (Weekly / Automated)
-The restore service is configured to target the **Test Environment** and runs automatically every week to validate backup integrity. This is why the script includes an automatic update of the `supabase` CLI—to ensure compatibility with the latest platform features during scheduled restores.
+### 3. Enable Automation
+```bash
+# Enable and start the backup timer (Daily)
+systemctl --user enable --now supabase-backup.timer
+
+# Enable and start the restore timer (Weekly)
+systemctl --user enable --now supabase-restore.timer
+```
+
+### 4. Verification & Logs
+Process logs are stored in `logs/` within the project directory.
 
 ```bash
-sudo cp systemd/supabase-restore.service systemd/supabase-restore.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now supabase-restore.timer
+# Check timer status
+systemctl --user list-timers --all
 
-# To trigger a manual run immediately:
-sudo systemctl start supabase-restore.service
+# Manually trigger backup
+systemctl --user start supabase-backup.service
+
+# View Logs
+tail -f logs/backup.log
+tail -f logs/restore.log
+```
+
+**Note on Podman**: This project exclusively uses Podman to allow for secure, rootless operation. The scripts automatically configure the `DOCKER_HOST` environment variable (e.g., `unix:///run/user/1000/podman/podman.sock`). Ensure the `podman.socket` is enabled:
+```bash
+systemctl --user enable --now podman.socket
 ```
 
 ## Troubleshooting

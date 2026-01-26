@@ -47,6 +47,16 @@ fi
 
 command -v borg >/dev/null 2>&1 || { echo >&2 "Error: 'borg' is required but not installed. Aborting."; exit 1; }
 
+# Enforce Podman (required for rootless user services)
+if ! command -v podman >/dev/null 2>&1; then
+    echo "Error: 'podman' is required but not installed. Docker is not supported for security reasons."
+    exit 1
+fi
+
+# Configure Podman
+export DOCKER_HOST="unix:///run/user/$(id -u)/podman/podman.sock"
+echo "Using Podman at $DOCKER_HOST"
+
 echo "--- Starting Supabase Backup: $TIMESTAMP ---"
 
 # 1. Handle Python Virtual Environment
