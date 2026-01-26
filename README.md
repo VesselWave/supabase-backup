@@ -48,7 +48,10 @@ This project provides a robust backup and restore solution for Supabase, designe
     - **Target (Test)**: `TEST_SUPABASE_PROJECT_REF`, `TEST_SUPABASE_DB_PASSWORD`, `TEST_SUPABASE_SERVICE_ROLE_KEY`.
 3.  **Install Dependencies**:
     ```bash
-    # This will automatically create the venv and install node dependencies
+    # Install dependencies manually
+    npm install
+    
+    # This will automatically create the venv if needed
     ./backup.sh
     ```
 
@@ -107,6 +110,12 @@ User services live in `~/.config/systemd/user/`.
 # 5. Generate a corrected logrotate configuration file
 ```
 
+### Manual Installation (If you prefer not to use install.sh)
+1.  Create the service directory: `mkdir -p ~/.config/systemd/user`
+2.  Copy files: `cp systemd/*.service systemd/*.timer ~/.config/systemd/user/`
+3.  Edit the service files to point to your actual directory instead of `%h/repos/supabase-backup`.
+4.  Reload: `systemctl --user daemon-reload`
+
 ### 3. Enable Automation
 ```bash
 # Enable and start the backup timer (Daily)
@@ -117,7 +126,7 @@ systemctl --user enable --now supabase-restore.timer
 ```
 
 ### 4. Verification & Logs
-Process logs are stored in `logs/` within the project directory.
+Process logs are stored in `~/.config/supabase-backup/logs/`.
 
 ```bash
 # Check timer status
