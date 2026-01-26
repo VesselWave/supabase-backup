@@ -55,15 +55,24 @@ fi
 
 command -v borg >/dev/null 2>&1 || { echo >&2 "Error: 'borg' is required but not installed. Aborting."; exit 1; }
 
-# Enforce Podman (required for rootless user services)
-if ! command -v podman >/dev/null 2>&1; then
-    echo "Error: 'podman' is required but not installed. Docker is not supported for security reasons."
+# Enforce Container Runtime (Podman or Docker)
+if command -v podman >/dev/null 2>&1; then
+    # Default to Podman if available
+    # Only set DOCKER_HOST if not already set by the user
+    if [ -z "$DOCKER_HOST" ]; then
+        export DOCKER_HOST="unix:///run/user/$(id -u)/podman/podman.sock"
+    fi
+     echo "Using Podman at $DOCKER_HOST"
+elif command -v docker >/dev/null 2>&1; then
+    # Fallback to Docker
+    echo "Using Docker (Podman not found)"
+    echo "WARNING: Docker requires root privileges or the 'docker' group, which is less secure than rootless Podman."
+    # Docker usually defaults to a known socket, or respects DOCKER_HOST if set.
+    # We do not override DOCKER_HOST for Docker unless necessary, but standard docker doesn't need it explicitly set if strictly following standards.
+else
+    echo "Error: Neither 'podman' nor 'docker' is installed. One is required."
     exit 1
 fi
-
-# Configure Podman
-export DOCKER_HOST="unix:///run/user/$(id -u)/podman/podman.sock"
-echo "Using Podman at $DOCKER_HOST"
 
 echo "--- Starting Supabase Backup: $TIMESTAMP ---"
 
