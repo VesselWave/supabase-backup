@@ -7,7 +7,7 @@ Type=oneshot
 # Project directory
 WorkingDirectory=%h/repos/supabase-backup
 # Run the script and pipe output to log file in the project directory
-ExecStart=/bin/bash -c "mkdir -p %h/repos/supabase-backup/logs && %h/repos/supabase-backup/backup.sh 2>&1 | tee -a %h/repos/supabase-backup/logs/backup.log"
+ExecStart=/usr/bin/env bash -c "%h/repos/supabase-backup/backup.sh"
 
 [Install]
 WantedBy=default.target

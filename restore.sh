@@ -146,6 +146,27 @@ else
 fi
 
 # HANDLE EXTRACTION
+
+# Begin logging to file for the execution phase
+LOG_DIR="$HOME/.config/supabase-backup/logs"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/restore.log"
+
+echo "--- Starting Restore Execution Locking: $(date) ---"
+echo "Logging output to: $LOG_FILE"
+
+# Redirect output to log file (append) while showing in terminal
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+# Log Configuration Context
+echo "Restore Configuration:"
+echo "  Archive Name: $ARCHIVE_NAME"
+echo "  Target Project: $TARGET_PROJECT_REF"
+echo "  Test Mode: $IS_TEST_MODE"
+echo "  Restore DB: $RESTORE_DB"
+echo "  Restore Storage: $RESTORE_STORAGE"
+echo "------------------------------------------------"
+
 if [ "$ARCHIVE_NAME" != "Local" ]; then
     echo "Extracting archive '$ARCHIVE_NAME' from Borg..."
     

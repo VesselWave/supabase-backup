@@ -1,6 +1,15 @@
 #!/bin/bash
 set -e
 
+# Logging configuration
+LOG_DIR="$HOME/.config/supabase-backup/logs"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/backup.log"
+
+# Redirect stdout and stderr to the log file while keeping stdout on the terminal
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+
 # Ensure local node_modules/.bin is in PATH for the supabase CLI
 export PATH="$PATH:$PWD/node_modules/.bin"
 
