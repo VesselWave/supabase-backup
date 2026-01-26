@@ -7,3 +7,4 @@ borg-repo/
 supabase/
 *.log
 __pycache__
+supabase-backup.logrotate
