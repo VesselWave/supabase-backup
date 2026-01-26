@@ -15,7 +15,6 @@ export PATH="$PWD/node_modules/.bin:$PATH"
 
 # Load environment variables
 if [ -f .env ]; then
-    # Use 'set -a' to export variables from the sourced file
     set -a
     source .env
     set +a
