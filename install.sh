@@ -41,22 +41,20 @@ systemctl --user daemon-reload
 
 # 5. Generate Logrotate Config (Optional)
 # The default logrotate config assumes /home/user and user:user. We fix this here.
-LOGROTATE_SOURCE="systemd/supabase-backup"
+LOGROTATE_SOURCE="systemd/supabase-backup.logrotate.template"
 LOGROTATE_DEST="supabase-backup.logrotate"
 
 if [ -f "$LOGROTATE_SOURCE" ]; then
     echo "Generating custom logrotate configuration..."
-    cp "$LOGROTATE_SOURCE" "$LOGROTATE_DEST"
     
-    # Replace /home/user with actual HOME
-    sed -i "s|/home/user|$HOME|g" "$LOGROTATE_DEST"
+    # Export variables for envsubst
+    export USER=$(id -u -n)
+    export GROUP=$(id -g -n)
+    export HOME
     
-    # Replace 'create 0640 user user' with actual USER and GROUP
-    CURRENT_USER=$(id -u -n)
-    CURRENT_GROUP=$(id -g -n)
-    sed -i "s|create 0640 user user|create 0640 $CURRENT_USER $CURRENT_GROUP|g" "$LOGROTATE_DEST"
+    envsubst < "$LOGROTATE_SOURCE" > "$LOGROTATE_DEST"
     
-    echo "Generated $LOGROTATE_DEST with correct paths and user."
+    echo "Generated $LOGROTATE_DEST with correct paths and user ($USER:$GROUP)."
 fi
 
 echo ""

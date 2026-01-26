@@ -1,9 +1,9 @@
-/home/user/.config/supabase-backup/logs/*.log {
+${HOME}/.config/supabase-backup/logs/*.log {
     daily
     rotate 14
     compress
     delaycompress
     missingok
     notifempty
-    create 0640 user user
+    create 0640 ${USER} ${GROUP}
 }
