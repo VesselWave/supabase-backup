@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import argparse
+import tempfile
 from dotenv import load_dotenv
 
 from util import run_command, get_env_var, check_tool
@@ -45,7 +46,7 @@ def check_restore_requirements(source_dir):
         print("  -> Ensure 'Publication' is enabled for the relevant tables in the destination project.")
     print("--------------------------------------------------")
 
-def clean_schema_file(file_path):
+def clean_schema_file(file_path, output_dir):
     """
     Comments out 'ALTER ... OWNER TO "supabase_admin"' lines to avoid permission errors.
     Returns path to temporary cleaned file.
@@ -55,22 +56,19 @@ def clean_schema_file(file_path):
 
     print(f"Cleaning schema file: {file_path}")
     
-    import tempfile
+    filename = f"restore_schema_{os.path.basename(file_path)}"
+    temp_path = os.path.join(output_dir, filename)
     
-    tf = tempfile.NamedTemporaryFile(mode='w', suffix='.sql', prefix='restore_schema_', delete=False)
-    temp_path = tf.name
-    
-    with open(file_path, "r", encoding="utf-8") as f_in:
+    with open(file_path, "r", encoding="utf-8") as f_in, open(temp_path, "w", encoding="utf-8") as f_out:
         for line in f_in:
             if 'OWNER TO "supabase_admin"' in line and not line.strip().startswith("--"):
-                tf.write(f"-- {line}")
+                f_out.write(f"-- {line}")
             else:
-                tf.write(line)
+                f_out.write(line)
     
-    tf.close()
     return temp_path
 
-def clean_roles_file(file_path):
+def clean_roles_file(file_path, output_dir):
     """
     Comments out lines that cause permission errors in roles.sql, specifically
     granting the 'postgres' role which is restricted in managed Supabase.
@@ -80,8 +78,6 @@ def clean_roles_file(file_path):
         return None
 
     print(f"Cleaning roles file: {file_path}")
-    
-    import tempfile
     
     # System roles that should not be created/altered during restore
     # authenticatiod, anon, service_role are default Supabase roles
@@ -94,17 +90,17 @@ def clean_roles_file(file_path):
         "cli_login_postgres"
     ]
     
-    tf = tempfile.NamedTemporaryFile(mode='w', suffix='.sql', prefix='restore_roles_', delete=False)
-    temp_path = tf.name
+    filename = f"restore_roles_{os.path.basename(file_path)}"
+    temp_path = os.path.join(output_dir, filename)
     
-    with open(file_path, "r", encoding="utf-8") as f_in:
+    with open(file_path, "r", encoding="utf-8") as f_in, open(temp_path, "w", encoding="utf-8") as f_out:
         for line in f_in:
             line_strip = line.strip()
             # 1. Check for GRANT <role> TO ...
             if ("GRANT postgres TO" in line or 'GRANT "postgres" TO' in line) and not line_strip.startswith("--"):
-                tf.write(f"-- {line}")
+                f_out.write(f"-- {line}")
             elif ("GRANT supabase_admin TO" in line or 'GRANT "supabase_admin" TO' in line) and not line_strip.startswith("--"):
-                tf.write(f"-- {line}")
+                f_out.write(f"-- {line}")
             # 2. Check for CREATE ROLE <system_role> or ALTER ROLE <system_role>
             else:
                 is_system_role_line = False
@@ -117,14 +113,13 @@ def clean_roles_file(file_path):
                         break
                 
                 if is_system_role_line and not line_strip.startswith("--"):
-                     tf.write(f"-- {line}")
+                     f_out.write(f"-- {line}")
                 else:
-                     tf.write(line)
+                     f_out.write(line)
     
-    tf.close()
     return temp_path
 
-def clean_data_file(file_path):
+def clean_data_file(file_path, output_dir):
     """
     Comments out COPY statements for tables that cause permission errors.
     Returns path to temporary cleaned file.
@@ -134,8 +129,6 @@ def clean_data_file(file_path):
 
     print(f"Cleaning data file: {file_path}")
     
-    import tempfile
-    
     # List of tables to skip data restore for if they cause issues
     # "storage"."buckets_vectors" is known to cause permission denied for postgres role
     # "storage"."vector_indexes" is also restricted
@@ -144,10 +137,10 @@ def clean_data_file(file_path):
     
     skipping = False
     
-    tf = tempfile.NamedTemporaryFile(mode='w', suffix='.sql', prefix='restore_data_', delete=False)
-    temp_path = tf.name
+    filename = f"restore_data_{os.path.basename(file_path)}"
+    temp_path = os.path.join(output_dir, filename)
     
-    with open(file_path, "r", encoding="utf-8") as f_in:
+    with open(file_path, "r", encoding="utf-8") as f_in, open(temp_path, "w", encoding="utf-8") as f_out:
         for line in f_in:
             if line.startswith("COPY "):
                 # Check if this COPY is for a skipped table
@@ -157,7 +150,7 @@ def clean_data_file(file_path):
                         break
             
             if skipping:
-                tf.write(f"-- {line}")
+                f_out.write(f"-- {line}")
                 if line.strip() == r"\.":
                     skipping = False
             elif "pg_catalog.setval" in line:
@@ -168,16 +161,15 @@ def clean_data_file(file_path):
                     if len(parts) > 0:
                         schema_part = parts[0] 
                         if schema_part in line:
-                             tf.write(f"-- {line}")
+                             f_out.write(f"-- {line}")
                              skipping_line = True
                              break
                 
                 if not skipping_line:
-                    tf.write(line)
+                    f_out.write(line)
             else:
-                tf.write(line)
+                f_out.write(line)
     
-    tf.close()
     return temp_path
 
 
@@ -266,16 +258,18 @@ def restore():
 
     cleaned_files_to_remove = []
 
-    try:
+    # Create a temporary directory for cleaned SQL files.
+    # It will be automatically removed when the 'with' block exits.
+    with tempfile.TemporaryDirectory() as temp_dir:
         # 1. Clean schema files
         # We process files and capture their temp paths.
         
         # Helper to process cleaning and track temp file
         def process_clean(original_path, clean_func):
             if os.path.exists(original_path):
-                cleaned_path = clean_func(original_path)
+                cleaned_path = clean_func(original_path, temp_dir)
                 if cleaned_path:
-                    cleaned_files_to_remove.append(cleaned_path)
+                    # cleaned_files_to_remove.append(cleaned_path) # No longer needed
                     return cleaned_path
             return None
 
@@ -377,15 +371,6 @@ def restore():
                 sys.exit(1)
 
         print("Database restore completed.")
-        
-    finally:
-        # Cleanup temporary files
-        for f in cleaned_files_to_remove:
-            if os.path.exists(f):
-                try:
-                    os.remove(f)
-                except OSError as e:
-                    print(f"Warning: Failed to remove temp file {f}: {e}")
 
 if __name__ == "__main__":
     load_dotenv()
