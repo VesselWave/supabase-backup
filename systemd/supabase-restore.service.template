@@ -4,8 +4,8 @@ After=network.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=%h/repos/supabase-backup
-ExecStart=/usr/bin/env bash -c "%h/repos/supabase-backup/restore.sh --test --yes"
+WorkingDirectory=${INSTALL_DIR}
+ExecStart=/usr/bin/env bash -c "${INSTALL_DIR}/restore.sh --test --yes"
 
 [Install]
 WantedBy=default.target

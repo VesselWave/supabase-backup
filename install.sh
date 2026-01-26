@@ -15,24 +15,27 @@ echo "Target Systemd Directory: $USER_SYSTEMD_DIR"
 mkdir -p "$USER_SYSTEMD_DIR"
 mkdir -p "$LOG_DIR"
 
-# 2. Copy Service Files
-echo "Copying systemd service files..."
-cp systemd/supabase-backup.service systemd/supabase-backup.timer "$USER_SYSTEMD_DIR/"
-cp systemd/supabase-restore.service systemd/supabase-restore.timer "$USER_SYSTEMD_DIR/"
+# 2. Generate and Copy Service Files
+echo "Generating systemd service files from templates..."
 
-# 3. Update Paths in Service Files
-# We replace the hardcoded assumption (%h/repos/supabase-backup) with the actual current directory.
-echo "Configuring paths in service files..."
+# Export INSTALL_DIR so envsubst can pick it up
+export INSTALL_DIR
 
-# Use | as delimiter for sed to handle slashes in paths
-sed -i "s|%h/repos/supabase-backup|$INSTALL_DIR|g" "$USER_SYSTEMD_DIR/supabase-backup.service"
-sed -i "s|%h/repos/supabase-backup|$INSTALL_DIR|g" "$USER_SYSTEMD_DIR/supabase-restore.service"
+# Process templates
+# We use a temp dir to avoid creating artifact files in the repo
+TEMP_GEN_DIR=$(mktemp -d)
+trap 'rm -rf "$TEMP_GEN_DIR"' EXIT
 
-# Also ensure specific executables are pointed correctly if the user didn't use the standard structure
-# (The Sed above handles WorkingDirectory and ExecStart path prefixes if they matched the pattern)
-# If the original file used different assumptions, we might miss it, but based on current file content it matches.
+envsubst < systemd/supabase-backup.service.template > "$TEMP_GEN_DIR/supabase-backup.service"
+envsubst < systemd/supabase-restore.service.template > "$TEMP_GEN_DIR/supabase-restore.service"
 
-# 4. Reload Systemd
+echo "Copying service and timer files..."
+# Copy the generated services
+cp "$TEMP_GEN_DIR/supabase-backup.service" "$TEMP_GEN_DIR/supabase-restore.service" "$USER_SYSTEMD_DIR/"
+# Copy the static timers
+cp systemd/supabase-backup.timer systemd/supabase-restore.timer "$USER_SYSTEMD_DIR/"
+
+# 3. Reload Systemd
 echo "Reloading systemd user daemon..."
 systemctl --user daemon-reload
 
