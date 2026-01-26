@@ -188,6 +188,8 @@ def backup():
     env["PATH"] = f"{node_bin}{os.pathsep}{env.get('PATH', '')}"
     if access_token:
         env["SUPABASE_ACCESS_TOKEN"] = access_token
+    if db_password:
+        env["SUPABASE_DB_PASSWORD"] = db_password
 
     print(f"Starting database dump for project {project_ref}...")
 
@@ -231,6 +233,7 @@ def restore():
     # Credentials for the TARGET database
     project_ref = get_env_var("TARGET_PROJECT_REF")
     db_password = get_env_var("TARGET_DB_PASSWORD")
+    access_token = get_env_var("SUPABASE_ACCESS_TOKEN", required=False)
     
     # Use PGPASSWORD environment variable to avoid password in command line
     db_host = f"db.{project_ref}.supabase.co"
@@ -284,6 +287,9 @@ def restore():
         # Use supabase db reset to cleanly wipe the database
         print("Resetting database using Supabase CLI...")
         env = os.environ.copy()
+        if access_token:
+            env["SUPABASE_ACCESS_TOKEN"] = access_token
+        env["SUPABASE_DB_PASSWORD"] = db_password
         node_bin = os.path.join(os.getcwd(), "node_modules", ".bin")
         env["PATH"] = f"{node_bin}{os.pathsep}{env.get('PATH', '')}"
         
