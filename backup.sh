@@ -11,7 +11,7 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 
 
 # Ensure local node_modules/.bin is in PATH for the supabase CLI
-export PATH="$PATH:$PWD/node_modules/.bin"
+export PATH="$PWD/node_modules/.bin:$PATH"
 
 # Load environment variables
 if [ -f .env ]; then

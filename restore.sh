@@ -1,8 +1,17 @@
 #!/bin/bash
 set -e
 
-# Ensure local node_modules/.bin is in PATH for the supabase CLI
-export PATH="$PATH:$PWD/node_modules/.bin"
+# Prioritize local node_modules/.bin
+export PATH="$PWD/node_modules/.bin:$PATH"
+
+# Logging configuration
+LOG_DIR="$HOME/.config/supabase-backup/logs"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/restore.log"
+
+# Redirect stdout and stderr to the log file while keeping stdout on the terminal
+exec > >(tee -a "$LOG_FILE") 2>&1
+
 
 # Load environment variables
 if [ -f .env ]; then
@@ -75,9 +84,8 @@ if [ "$SKIP_CONFIRM" = false ]; then
     SELECTION_JSON=$($PYTHON_EXEC interactive.py)
     
     # Parse JSON (using python one-liner to avoid jq dependency)
-    ARCHIVE_NAME=$(echo "$SELECTION_JSON" | $PYTHON_EXEC -c "import sys, json; print(json.load(sys.stdin)['archive'])")
-    RESTORE_DB_VAL=$(echo "$SELECTION_JSON" | $PYTHON_EXEC -c "import sys, json; print(json.load(sys.stdin)['restore_db'])")
-    RESTORE_STORAGE_VAL=$(echo "$SELECTION_JSON" | $PYTHON_EXEC -c "import sys, json; print(json.load(sys.stdin)['restore_storage'])")
+    # Parse JSON efficiently in one go
+    read -r ARCHIVE_NAME RESTORE_DB_VAL RESTORE_STORAGE_VAL <<< $(echo "$SELECTION_JSON" | $PYTHON_EXEC -c "import sys, json; d=json.load(sys.stdin); print(d['archive'], d['restore_db'], d['restore_storage'])")
     
     if [ "$RESTORE_DB_VAL" == "True" ]; then RESTORE_DB=true; else RESTORE_DB=false; fi
     if [ "$RESTORE_STORAGE_VAL" == "True" ]; then RESTORE_STORAGE=true; else RESTORE_STORAGE=false; fi
@@ -147,17 +155,6 @@ fi
 
 # HANDLE EXTRACTION
 
-# Begin logging to file for the execution phase
-LOG_DIR="$HOME/.config/supabase-backup/logs"
-mkdir -p "$LOG_DIR"
-LOG_FILE="$LOG_DIR/restore.log"
-
-echo "--- Starting Restore Execution Locking: $(date) ---"
-echo "Logging output to: $LOG_FILE"
-
-# Redirect output to log file (append) while showing in terminal
-exec > >(tee -a "$LOG_FILE") 2>&1
-
 # Log Configuration Context
 echo "Restore Configuration:"
 echo "  Archive Name: $ARCHIVE_NAME"
@@ -208,9 +205,9 @@ fi
 
 echo "--- Starting Supabase Restore: $(date) ---"
 
-# 1. Update Supabase CLI
-echo "Updating Supabase CLI..."
-npm install supabase@latest --silent
+# 1. Update Supabase CLI (Skipped - User responsibility to install dependencies)
+# npm install supabase@latest --silent
+
 
 # (Venv setup moved to top)
 
