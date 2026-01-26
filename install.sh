@@ -5,22 +5,30 @@ set -e
 # This script installs systemd services and configures paths based on the current location.
 
 INSTALL_DIR=$(pwd)
-TARGET_DIR="$HOME/.local/share/supabase-backup"
-IN_PLACE=false
+COPY_TARGET=""
 
 # Argument parsing
-for arg in "$@"; do
-    case $arg in
-        --in-place)
-            IN_PLACE=true
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --copy-to)
+            COPY_TARGET="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown argument: $1"
+            echo "Usage: ./install.sh [--copy-to <path>]"
+            exit 1
             ;;
     esac
 done
 
-if [ "$IN_PLACE" = true ]; then
-    echo "Installing in-place... (Directory: $INSTALL_DIR)"
-else
-    echo "Installing to persistent location: $TARGET_DIR"
+if [ -n "$COPY_TARGET" ]; then
+    # Resolve absolute path for target
+    # Simple way: just use the string if it starts with /, else prepend pwd?
+    # Better: expand user
+    TARGET_DIR=$(eval echo "$COPY_TARGET")
+    
+    echo "Installing to peristent location: $TARGET_DIR"
     mkdir -p "$TARGET_DIR"
     
     # Copy files (excluding venv, .git, and node_modules to ensure clean state)
@@ -40,6 +48,17 @@ else
     if [ ! -d "$INSTALL_DIR/node_modules" ]; then
         echo "Installing npm dependencies in $INSTALL_DIR..."
         (cd "$INSTALL_DIR" && npm install)
+    fi
+else
+    echo "Installing in-place... (Directory: $INSTALL_DIR)"
+    
+    # Warn if installing from a temporary location
+    if [[ "$INSTALL_DIR" == *"/tmp"* ]] || [[ "$INSTALL_DIR" == *"/Downloads"* ]]; then
+        echo "WARNING: You are installing from a temporary directory."
+        echo "If you delete this folder, the backup service will fail."
+        echo "Consider moving this repo to a permanent location or usage './install.sh --copy-to ~/.local/share/supabase-backup'"
+        echo "Press Ctrl+C to abort or Enter to continue."
+        read -r
     fi
 fi
 
