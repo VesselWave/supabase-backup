@@ -164,24 +164,10 @@ class StorageMigrator:
                         error_text = await resp.text() if resp.status != 200 else ""
                         print(f"Failed to download {full_path}: {resp.status} - {self._sanitize_error(error_text)}")
 
-        # Create a set of tasks, processing as items come in
-        # Since we want to use tqdm, strict streaming is tricky without knowing total.
-        # But we can just create tasks and gather them. Careful not to spawn 100k tasks at once.
-        # Better: Producer/Consumer queue or just Semaphore is fine if we await tasks in batches?
-        # Typically for pure streaming we use a bounded queue.
-        # For simplicity in this refactor, we can just yield all items then map, OR keep it simple:
-        # We'll just collect them for now because existing code did that, but the generator saves the intermediate step per-recursion.
-        # Wait, the goal is memory scalability. Collecting everything into `files` list defeats the purpose.
-        # We should start processing as soon as we get items.
-        
+        # Create tasks for all files. 
+        # While a bounded queue is better for massive scales, spawning tasks 
+        # is sufficient for typical bucket sizes (<100k objects) and preserves parallelism.
         tasks = []
-        # We need a way to track progress without total... or just show "Processed X files".
-        # Let's use a bounded semaphore to control active tasks.
-        
-        # Simplified approach preserving parallelsim:
-        # Iterate generator, spawn task, append to set. If set > X, wait? 
-        # Actually, python tasks are light. The problem is the DATA payload memory maybe? No, just the object list.
-        # We can just spawn tasks. 100k tasks objects is manageable.
         
         async for file_item in self.recursive_list_files(bucket_name):
              tasks.append(asyncio.create_task(_download(file_item)))
@@ -273,11 +259,8 @@ class StorageMigrator:
         """
         print(f"Comparing files in {bucket_name} for cleanup...")
         
-        # 1. List remote files (streamed)
-        # We need a set of remote files. Streaming directly into a set is fine for checking logic.
-        # But for large buckets, this set might still be big. 
-        # However, to compare with local, we kinda need the full list or iterative checking.
-        # Let's collect remote files first.
+        # 1. Collect all remote files to compare against local files.
+        # We need the full list to determine deletions.
         remote_files = []
         async for f in self.recursive_list_files(bucket_name):
              remote_files.append(f)

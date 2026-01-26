@@ -138,8 +138,7 @@ def main():
     selected_components_indexes = component_menu.show()
     
     if selected_components_indexes is None:
-        # If user escapes, careful. Maybe default to nothing or exit?
-        # User implies cancel
+        # User cancelled
         sys.exit(1)
         
     restore_db = 0 in selected_components_indexes

@@ -31,8 +31,6 @@ done
 
 if [ -n "$COPY_TARGET" ]; then
     # Resolve absolute path for target
-    # Simple way: just use the string if it starts with /, else prepend pwd?
-    # Better: expand user
     TARGET_DIR=$(eval echo "$COPY_TARGET")
     
     echo "Installing to peristent location: $TARGET_DIR"
