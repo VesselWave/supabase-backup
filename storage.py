@@ -33,11 +33,13 @@ class StorageMigrator:
     def _sanitize_error(self, message: str) -> str:
         """Sanitize error messages to prevent service role key exposure."""
         import re
-        # Mask the service role key if it appears in error messages
-        sanitized = re.sub(r'(eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*)', '***JWT_TOKEN***', message)
-        # Also mask any occurrence of the actual key
+        # Broadly catch JWTs: Header.Payload.Signature (skipping content checks for speed/safety)
+        # eyJ... starts the header.
+        sanitized = re.sub(r'eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+', '<REDACTED_JWT>', message)
+        
+        # Also mask any occurrence of the actual key if it's not a standard JWT (e.g. plain opaque token)
         if self.key:
-            sanitized = sanitized.replace(self.key, '***SERVICE_ROLE_KEY***')
+           sanitized = sanitized.replace(self.key, '<REDACTED_KEY>')
         return sanitized
 
     async def _get_session(self) -> aiohttp.ClientSession:
