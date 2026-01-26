@@ -130,6 +130,8 @@ def main():
         multi_select=True,
         show_multi_select_hint=True,
         preselected_entries=[0, 1],
+        multi_select_select_on_accept=False,
+        multi_select_empty_ok=True,
         menu_cursor="> ",
         menu_cursor_style=("fg_cyan", "bold"),
         menu_highlight_style=("bg_cyan", "fg_black"),
