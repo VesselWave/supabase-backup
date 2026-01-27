@@ -319,9 +319,13 @@ class StorageMigrator:
         print(f"Done cleaning '{bucket_name}'")
 
 async def backup(concurrency: int):
-    project_ref = get_env_var("SUPABASE_PROJECT_REF")
+    # Use custom URL for self-hosted, or construct from project ref for Supabase Cloud
+    url = get_env_var("SUPABASE_URL", required=False)
+    if not url:
+        project_ref = get_env_var("SUPABASE_PROJECT_REF")
+        url = f"https://{project_ref}.supabase.co"
+    
     service_role_key = get_env_var("SUPABASE_SERVICE_ROLE_KEY")
-    url = f"https://{project_ref}.supabase.co"
     
     local_backup_dir = os.path.expanduser(get_env_var("LOCAL_BACKUP_DIR", required=False) or "./backups")
     target_dir = os.path.join(local_backup_dir, "storage")
@@ -334,9 +338,13 @@ async def backup(concurrency: int):
             await migrator.backup_bucket(bucket['name'], target_dir, concurrency)
 
 async def restore(concurrency: int):
-    project_ref = get_env_var("TARGET_PROJECT_REF")
+    # Use custom URL for self-hosted, or construct from project ref for Supabase Cloud
+    url = get_env_var("TEST_SUPABASE_URL", required=False) or get_env_var("TARGET_URL", required=False)
+    if not url:
+        project_ref = get_env_var("TARGET_PROJECT_REF")
+        url = f"https://{project_ref}.supabase.co"
+    
     service_role_key = get_env_var("TARGET_SERVICE_ROLE_KEY")
-    url = f"https://{project_ref}.supabase.co"
     
     local_backup_dir = os.path.expanduser(get_env_var("LOCAL_BACKUP_DIR", required=False) or "./backups")
     source_dir = os.path.join(local_backup_dir, "storage")

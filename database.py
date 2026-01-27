@@ -231,12 +231,28 @@ def backup():
 
 def restore():
     # Credentials for the TARGET database
-    project_ref = get_env_var("TARGET_PROJECT_REF")
+    project_ref = get_env_var("TARGET_PROJECT_REF", required=False)
     db_password = get_env_var("TARGET_DB_PASSWORD")
     access_token = get_env_var("SUPABASE_ACCESS_TOKEN", required=False)
     
-    # Use PGPASSWORD environment variable to avoid password in command line
-    db_host = f"db.{project_ref}.supabase.co"
+    # Derive database host from custom URL if provided, otherwise use standard pattern
+    custom_url = get_env_var("TEST_SUPABASE_URL", required=False) or get_env_var("TARGET_URL", required=False)
+    
+    if custom_url:
+        # For self-hosted instances with custom URLs
+        from urllib.parse import urlparse
+        parsed = urlparse(custom_url)
+        # Allow explicit override, or derive from URL by prefixing with 'db.'
+        db_host = get_env_var("TEST_SUPABASE_DB_HOST", required=False) or f"db.{parsed.netloc}"
+        # If project_ref not provided, try to extract from URL (won't be used for linking if custom URL)
+        if not project_ref:
+            # For self-hosted, project_ref might not be needed, but keep for compatibility
+            project_ref = parsed.netloc.split('.')[0] if '.' in parsed.netloc else parsed.netloc
+    else:
+        # Standard Supabase Cloud pattern
+        if not project_ref:
+            raise ValueError("TARGET_PROJECT_REF is required when not using custom URLs")
+        db_host = f"db.{project_ref}.supabase.co"
     
     local_backup_dir = os.path.expanduser(get_env_var("LOCAL_BACKUP_DIR", required=False) or "./backups")
     source_dir = os.path.join(local_backup_dir, "database")

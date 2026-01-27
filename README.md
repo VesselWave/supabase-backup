@@ -4,13 +4,13 @@ A production-ready backup and restore solution for Supabase projects. Handles co
 
 ## Features
 
-- ✅ **Complete Database Backup** - Roles, schemas, data, and migration history
-- ✅ **Storage Mirroring** - Full bucket synchronization with metadata preservation  
-- ✅ **Interactive Recovery** - Terminal UI for selecting snapshots and components
-- ✅ **Automated Scheduling** - Systemd timers for daily backups and weekly test restores
-- ✅ **Intelligent Patching** - Automatic cleanup of permission-restricted statements
-- ✅ **Security First** - Rootless Podman support, credential sanitization in logs
-- ✅ **Deduplication** - Borg Backup reduces storage with incremental snapshots
+- 💾 **Complete Database Backup** - Roles, schemas, data, and migration history
+- 🪣 **Storage Mirroring** - Full bucket synchronization with metadata preservation  
+- 🖥️ **Interactive Recovery** - Terminal UI for selecting snapshots and components
+- ⏰ **Automated Scheduling** - Systemd timers for daily backups and weekly test restores
+- 🔧 **Intelligent Patching** - Automatic cleanup of permission-restricted statements
+- 🔒 **Security First** - Rootless Podman support, credential sanitization in logs
+- 📦 **Deduplication** - Borg Backup reduces storage with incremental snapshots
 
 ## Prerequisites
 
@@ -49,6 +49,12 @@ TEST_SUPABASE_PROJECT_REF="your-test-project-ref"
 TEST_SUPABASE_DB_PASSWORD="your-test-db-password"
 TEST_SUPABASE_SERVICE_ROLE_KEY="your-test-service-role-key"
 
+# Self-hosted Supabase (optional)
+# Only needed for self-hosted instances - leave empty for Supabase Cloud
+SUPABASE_URL=""              # e.g., http://localhost:8000
+TEST_SUPABASE_URL=""         # e.g., https://supabase.mycompany.com
+TEST_SUPABASE_DB_HOST=""     # e.g., localhost (if different from API host)
+
 # Backup storage paths
 LOCAL_BACKUP_DIR="$HOME/backups/supabase/latest"
 BORG_REPO="$HOME/backups/supabase/borg-repo"
@@ -60,6 +66,29 @@ BORG_RETENTION_DAYS="21"
 - `SUPABASE_ACCESS_TOKEN`: [Dashboard → Account → Access Tokens](https://supabase.com/dashboard/account/tokens)
 - `SUPABASE_SERVICE_ROLE_KEY`: Project Settings → API → service_role key
 - `TEST_SUPABASE_DB_PASSWORD`: Project Settings → Database → Password
+
+### Self-Hosted Supabase Configuration
+
+For self-hosted Supabase instances, add custom URL configuration:
+
+```bash
+# Production self-hosted instance
+SUPABASE_URL="https://supabase.mycompany.com"
+SUPABASE_SERVICE_ROLE_KEY="your-self-hosted-service-role-key"
+
+# Test self-hosted instance  
+TEST_SUPABASE_URL="http://localhost:8000"
+TEST_SUPABASE_SERVICE_ROLE_KEY="your-test-service-role-key"
+TEST_SUPABASE_DB_PASSWORD="your-test-db-password"
+
+# Optional: Override database host if different from API URL
+TEST_SUPABASE_DB_HOST="localhost"  # or db.mycompany.com
+```
+
+**Notes:**
+- When using custom URLs, `SUPABASE_PROJECT_REF` and `TEST_SUPABASE_PROJECT_REF` are optional
+- Database host is automatically derived as `db.{url-hostname}` unless `TEST_SUPABASE_DB_HOST` is set
+- For Supabase Cloud, leave custom URL variables empty to use standard `https://{project-ref}.supabase.co`
 
 ### 3. Run Your First Backup
 
@@ -157,7 +186,7 @@ systemctl --user start supabase-backup.service
 
 ## Backup Schedule
 
-- **Backups**: 6 times daily with randomization (via systemd timer)
+- **Backups**: Daily with randomization (via systemd timer)
 - **Test Restores**: Weekly on Sundays at 2:15 AM
 - **Retention**: 21 days by default (configurable via `BORG_RETENTION_DAYS`)
 
@@ -179,12 +208,15 @@ systemctl --user start supabase-backup.service
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `SUPABASE_PROJECT_REF` | Yes | Production project reference ID |
+| `SUPABASE_PROJECT_REF` | Yes* | Production project reference ID (*not required if using SUPABASE_URL) |
 | `SUPABASE_ACCESS_TOKEN` | Yes | Management API token |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Production service role key (bypasses RLS) |
-| `TEST_SUPABASE_PROJECT_REF` | For restores | Test project reference ID |
+| `SUPABASE_URL` | No | Custom URL for self-hosted production instance (e.g., http://localhost:8000) |
+| `TEST_SUPABASE_PROJECT_REF` | For restores* | Test project reference ID (*not required if using TEST_SUPABASE_URL) |
 | `TEST_SUPABASE_DB_PASSWORD` | For restores | Test project database password |
 | `TEST_SUPABASE_SERVICE_ROLE_KEY` | For restores | Test service role key |
+| `TEST_SUPABASE_URL` | No | Custom URL for self-hosted test instance |
+| `TEST_SUPABASE_DB_HOST` | No | Custom database host (auto-derived from TEST_SUPABASE_URL if not set) |
 | `LOCAL_BACKUP_DIR` | Yes | Directory for raw backup files |
 | `BORG_REPO` | Yes | Borg repository location |
 | `BORG_EXTRACT_DIR` | Yes | Directory for extracted archives |
