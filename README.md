@@ -1,151 +1,284 @@
-# Supabase Backup System
+# Supabase Backup & Restore System
 
-This project provides a robust backup and restore solution for Supabase, designed to handle database schemas, data, migration history, and storage buckets. It uses **Borg Backup** for deduplicated, versioned storage and supports complex restore scenarios including permission handling and schema drift.
+A production-ready backup and restore solution for Supabase projects. Handles complete database schemas, data, migration history, and storage buckets with deduplication, versioning, and intelligent recovery features.
 
 ## Features
 
-### Database (`database.py`)
-- **Complete Environment Capture**:
-  - Roles, Schema, and Data.
-  - **Migration History**: Dumps `supabase_migrations` schema to preserve migration state.
-  - **Schema Drift**: Captures internal schema changes (`auth`, `storage`) via `supabase db diff`.
-- **Robust Restore**:
-  - **Auto-Cleaning**: Automatically sanitizes dumps to remove restricted permissions (e.g., `GRANT ... TO "postgres"`) that fail in managed environments.
-  - **Schema Patching**: Comments out `ALTER ... OWNER TO "supabase_admin"` to prevent ownership errors.
-  - **Data Skipping**: Smart-skips internal system tables that cause permission errors (e.g., `storage.buckets_vectors`).
-  - **Auto-Wipe**: Recreates the `public` schema and truncates `auth`/`storage` tables before restoration to ensure a clean state.
-  - **Requirements Scanning**: Analyzes backup files for usage of Webhooks, Extensions, and Realtime publications and warns if the target environment needs manual configuration.
-  - **Resiliency**: Implements `session_replication_role = replica` to bypass trigger/constraint conflicts during data load.
-
-### Storage (`storage.py`)
-- **API-Based Sync**: Uses the Supabase Storage API for reliable file transfers without direct S3 access.
-- **Full Bucket Mirroring**:
-  - **Upserting**: Replaces existing files if they've changed.
-  - **Wiping**: Deletes files on the remote bucket that are not present in the backup, ensuring a 1:1 mirror.
-- **Metadata Preservation**: Preserves file metadata (MIME type, cache control) via sidecar JSON files.
-- **Resilient Uploads**: Implements retry logic and memory-buffered transfers to handle network instability.
-
-### Core
-- **Deduplication**: Uses **Borg Backup** for efficient, incremental snapshots.
-- **Interactive Recovery**: Terminal-based wizard for selecting snapshots and specific components to restore.
-- **Auto-Extraction**: Automatically calculates path depths when extracting from Borg to maintain directory structure.
-- **Self-Contained**: Manages its own Python virtual environment (`venv`) and local `supabase` CLI.
+- ✅ **Complete Database Backup** - Roles, schemas, data, and migration history
+- ✅ **Storage Mirroring** - Full bucket synchronization with metadata preservation  
+- ✅ **Interactive Recovery** - Terminal UI for selecting snapshots and components
+- ✅ **Automated Scheduling** - Systemd timers for daily backups and weekly test restores
+- ✅ **Intelligent Patching** - Automatic cleanup of permission-restricted statements
+- ✅ **Security First** - Rootless Podman support, credential sanitization in logs
+- ✅ **Deduplication** - Borg Backup reduces storage with incremental snapshots
 
 ## Prerequisites
-- **Podman** (Docker is NOT supported for security reasons)
-- [borgbackup](https://www.borgbackup.org/)
-- Python 3.x
-- Node.js (for local supabase CLI installation)
 
-## Setup
+- **Podman** (rootless container runtime)
+- **borgbackup** - Deduplication and versioning
+- **Python 3.x** - For backup/restore scripts
+- **Node.js** - For Supabase CLI
 
-1.  **Clone and Configure**:
-    ```bash
-    cp .env.example .env
-    ```
-2.  **Fill `.env`**:
-    - **Source**: `SUPABASE_PROJECT_REF`, `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`, `SUPABASE_SERVICE_ROLE_KEY`.
-    - **Target (Test)**: `TEST_SUPABASE_PROJECT_REF`, `TEST_SUPABASE_DB_PASSWORD`, `TEST_SUPABASE_SERVICE_ROLE_KEY`.
-3.  **Install Dependencies**:
-    ```bash
-    # Install dependencies manually
-    npm install
-    
-    # This will automatically create the venv if needed
-    ./backup.sh
-    ```
+Install on Debian/Ubuntu:
+```bash
+sudo apt install podman borgbackup python3 python3-venv nodejs npm
+```
 
-## Usage
+## Quick Start
 
-### Backup (Daily Operation)
-The `backup.sh` script orchestrates the entire capture flow:
+### 1. Clone and Configure
+
+```bash
+git clone <your-repo-url>
+cd supabase-backup
+
+cp .env.example .env
+nano .env  # Fill in your Supabase credentials
+```
+
+### 2. Configure `.env`
+
+```bash
+# Production project (for backups)
+SUPABASE_PROJECT_REF="your-project-ref"
+SUPABASE_ACCESS_TOKEN="sbp_your_access_token"
+SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
+
+# Test project (for restore testing)
+TEST_SUPABASE_PROJECT_REF="your-test-project-ref"
+TEST_SUPABASE_DB_PASSWORD="your-test-db-password"
+TEST_SUPABASE_SERVICE_ROLE_KEY="your-test-service-role-key"
+
+# Backup storage paths
+LOCAL_BACKUP_DIR="$HOME/backups/supabase/latest"
+BORG_REPO="$HOME/backups/supabase/borg-repo"
+BORG_EXTRACT_DIR="$HOME/backups/supabase/extract"
+BORG_RETENTION_DAYS="21"
+```
+
+**Where to find credentials:**
+- `SUPABASE_ACCESS_TOKEN`: [Dashboard → Account → Access Tokens](https://supabase.com/dashboard/account/tokens)
+- `SUPABASE_SERVICE_ROLE_KEY`: Project Settings → API → service_role key
+- `TEST_SUPABASE_DB_PASSWORD`: Project Settings → Database → Password
+
+### 3. Run Your First Backup
+
 ```bash
 ./backup.sh
 ```
-What it does:
-1.  Dumps DB Roles, Schema, and Data.
-2.  Captures `supabase_migrations` history.
-3.  Diffs `auth` and `storage` schemas.
-4.  Downloads all Storage objects and metadata.
-5.  Commits the result to a **Borg** archive called `YYYY-MM-DD_HH-MM-SS`.
-6.  Prunes archives older than 21 days.
 
-### Restore (Point-in-Time Recovery)
-The `restore.sh` script provides two modes:
+This will:
+1. Create a Python virtual environment (first run only)
+2. Dump your database (schema, data, migrations)
+3. Download all storage buckets
+4. Create a deduplicated Borg archive named `YYYY-MM-DD_HH-MM-SS`
+5. Prune old backups based on retention policy
 
-#### 1. Automated Test Restore
-Restores the **latest local backup** to the test environment defined in `.env`.
+## Usage
+
+### Manual Backup
+
 ```bash
-./restore.sh --test -y
+./backup.sh
 ```
 
-#### 2. Interactive Wizard
-Run without arguments to start the interactive selection:
+### Manual Restore
+
+#### Interactive Mode (Recommended)
+
 ```bash
 ./restore.sh
 ```
-- **Select Source**: Choose between `Local` files or any historical snapshot from the **Borg** repository.
-- **Select Components**: Choose to restore **Database**, **Storage**, or both.
-- **Confirm Target**: For non-test projects, you must manually enter the Project Ref and Password to confirm the destructive wipe.
 
-## System Integration (Systemd)
+The interactive wizard lets you:
+1. **Select backup source**:
+   - `[Local]` - Latest backup in LOCAL_BACKUP_DIR
+   - `[Extract]` - Previously extracted Borg archive  
+   - `[Archive]` - Any historical Borg snapshot
+2. **Choose components**: Database, Storage, or both
+3. **Specify target**: Enter project details or use test environment
 
-### 1. Enable User Services (Linger)
-Allow your user services to run even when you are not logged in:
+#### Automated Test Restore
+
 ```bash
+./restore.sh --test --yes
+```
+
+Restores the latest local backup to your test environment without any prompts. Perfect for automated verification.
+
+### View Available Backups
+
+```bash
+borg list $HOME/backups/supabase/borg-repo
+```
+
+## Automated Backups (Systemd)
+
+### Installation
+
+```bash
+# Run the installer
+./install.sh
+
+# Enable daily backups
+systemctl --user enable --now supabase-backup.timer
+
+# Enable weekly test restores (validates backups work)
+systemctl --user enable --now supabase-restore.timer
+
+# Allow services to run when not logged in
 sudo loginctl enable-linger $USER
 ```
 
-### 2. Install Services
-User services live in `~/.config/systemd/user/`.
-```bash
-# Run the installation script
-./install.sh
+### Enable Podman Socket
 
-# The script will:
-# 1. Create the systemd user directory if it doesn't exist
-# 2. Copy service/timer files
-# 3. Automatically update paths to matches your current installation directory
-# 4. Reload the systemd daemon
-# 5. Generate a corrected logrotate configuration file
-```
-
-### Manual Installation (If you prefer not to use install.sh)
-1.  Create the service directory: `mkdir -p ~/.config/systemd/user`
-2.  Copy files: `cp systemd/*.service systemd/*.timer ~/.config/systemd/user/`
-3.  Edit the service files to point to your actual directory instead of `%h/repos/supabase-backup`.
-4.  Reload: `systemctl --user daemon-reload`
-
-### 3. Enable Automation
-```bash
-# Enable and start the backup timer (Daily)
-systemctl --user enable --now supabase-backup.timer
-
-# Enable and start the restore timer (Weekly)
-systemctl --user enable --now supabase-restore.timer
-```
-
-### 4. Verification & Logs
-Process logs are stored in `~/.config/supabase-backup/logs/`.
-
-```bash
-# Check timer status
-systemctl --user list-timers --all
-
-# Manually trigger backup
-systemctl --user start supabase-backup.service
-
-# View Logs
-tail -f logs/backup.log
-tail -f logs/restore.log
-```
-
-**Note on Podman**: This project exclusively uses Podman to allow for secure, rootless operation. The scripts automatically configure the `DOCKER_HOST` environment variable (e.g., `unix:///run/user/1000/podman/podman.sock`). Ensure the `podman.socket` is enabled:
+For systemd services to work with Podman:
 ```bash
 systemctl --user enable --now podman.socket
 ```
 
+### Monitoring
+
+```bash
+# Check timer status
+systemctl --user list-timers
+
+# View service logs
+journalctl --user -u supabase-backup.service
+journalctl --user -u supabase-restore.service
+
+# Check log files
+tail -f ~/.config/supabase-backup/logs/backup.log
+tail -f ~/.config/supabase-backup/logs/restore.log
+
+# Manually trigger a backup
+systemctl --user start supabase-backup.service
+```
+
+## Backup Schedule
+
+- **Backups**: 6 times daily with randomization (via systemd timer)
+- **Test Restores**: Weekly on Sundays at 2:15 AM
+- **Retention**: 21 days by default (configurable via `BORG_RETENTION_DAYS`)
+
+## What Gets Backed Up
+
+### Database
+- ✅ All roles and permissions
+- ✅ Complete schema (all tables, views, functions, triggers)
+- ✅ All data from all tables
+- ✅ Migration history (`supabase_migrations` schema)
+- ✅ Schema diffs for internal Supabase schemas (auth, storage)
+
+### Storage
+- ✅ All files from all buckets
+- ✅ File metadata (MIME type, cache control)
+- ✅ Bucket configurations
+
+## Configuration Reference
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SUPABASE_PROJECT_REF` | Yes | Production project reference ID |
+| `SUPABASE_ACCESS_TOKEN` | Yes | Management API token |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Production service role key (bypasses RLS) |
+| `TEST_SUPABASE_PROJECT_REF` | For restores | Test project reference ID |
+| `TEST_SUPABASE_DB_PASSWORD` | For restores | Test project database password |
+| `TEST_SUPABASE_SERVICE_ROLE_KEY` | For restores | Test service role key |
+| `LOCAL_BACKUP_DIR` | Yes | Directory for raw backup files |
+| `BORG_REPO` | Yes | Borg repository location |
+| `BORG_EXTRACT_DIR` | Yes | Directory for extracted archives |
+| `BORG_RETENTION_DAYS` | No | Days to keep archives (default: 21) |
+
+**Note**: Production database password is NOT needed for backups, only for restores.
+
 ## Troubleshooting
-- **Archive Extraction**: If you manually extract a Borg archive, use `borg extract --strip-components 2`. The `restore.sh` script handles this automatically.
-- **Locked Processes**: The system uses `/tmp/supabase_backup_restore.lock` to prevent concurrent operations.
-- **Role Errors**: If the restore fails on `GRANT` or `OWNER` statements, ensure `database.py` includes the offending role in its `system_roles` list.
+
+### Borg Lock Errors
+
+If a backup was interrupted:
+```bash
+borg break-lock $HOME/backups/supabase/borg-repo
+```
+
+### Podman Socket Not Found
+
+```bash
+systemctl --user enable --now podman.socket
+export DOCKER_HOST="unix:///run/user/$(id -u)/podman/podman.sock"
+```
+
+### Concurrent Operations
+
+The system uses a lock file (`/tmp/supabase_backup_restore.lock`) to prevent simultaneous backup/restore operations. If you see a "Another process is running" error, wait for the other operation to complete.
+
+### Permission Errors During Restore
+
+The system automatically cleans most permission-related issues. If you encounter errors:
+1. Check the restore logs for specific error messages
+2. The system skips problematic system tables automatically
+3. For persistent issues, see [DEVELOPMENT.md](docs/DEVELOPMENT.md) for customization
+
+### Storage Sync Issues
+
+- Verify your service role key has storage permissions
+- Check bucket policies allow the required operations
+- Review logs for sanitized error messages
+
+## Security
+
+- **Rootless Containers**: Podman runs without root privileges
+- **Credential Protection**: Passwords passed via environment variables, never CLI arguments
+- **Log Sanitization**: Service role keys redacted from error messages
+- **File Permissions**: Backup files owned by your user only
+- **No Production Password**: Backups don't require production database password
+
+## Performance Tips
+
+- **Storage Concurrency**: Adjust with `--concurrency N` flag for storage operations
+- **Borg Efficiency**: Automatically deduplicates and compresses, incremental backups only store changes
+- **Retention Balance**: Longer retention = more storage, but better recovery options
+
+## Directory Structure
+
+```
+$HOME/backups/supabase/
+├── latest/              # LOCAL_BACKUP_DIR (working directory)
+│   ├── database/
+│   │   ├── roles.sql
+│   │   ├── schema.sql
+│   │   ├── data.sql
+│   │   ├── migrations.sql
+│   │   ├── diffs/
+│   │   └── .timestamp
+│   └── storage/
+│       └── <bucket>/
+│           └── <files>
+├── extract/             # BORG_EXTRACT_DIR (for manual extractions)
+└── borg-repo/           # BORG_REPO (deduplicated archives)
+```
+
+## Documentation
+
+- **[DEVELOPMENT.md](docs/DEVELOPMENT.md)** - Architecture, component deep-dive, and extension guide for developers
+- **[STORAGE_MIGRATION_SPEC.md](docs/STORAGE_MIGRATION_SPEC.md)** - Storage API implementation details
+
+## Contributing
+
+See [DEVELOPMENT.md](docs/DEVELOPMENT.md) for:
+- Architecture overview
+- Component implementation details
+- Testing workflows
+- Adding custom features
+
+## License
+
+MIT License - See LICENSE file
+
+## Support
+
+For issues:
+1. Check logs: `~/.config/supabase-backup/logs/`
+2. Verify systemd status: `systemctl --user status supabase-backup.service`
+3. Test Borg access: `borg list $HOME/backups/supabase/borg-repo`
+4. Review [troubleshooting section](#troubleshooting)
