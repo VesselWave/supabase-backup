@@ -170,7 +170,26 @@ echo "  Restore DB: $RESTORE_DB"
 echo "  Restore Storage: $RESTORE_STORAGE"
 echo "------------------------------------------------"
 
-if [ "$ARCHIVE_NAME" != "Local" ]; then
+if [ "$ARCHIVE_NAME" = "Extract" ]; then
+    echo "Using previously extracted archive from BORG_EXTRACT_DIR..."
+    
+    # BORG_EXTRACT_DIR is required
+    if [ -z "$BORG_EXTRACT_DIR" ]; then
+        echo "Error: BORG_EXTRACT_DIR must be set in .env to use the Extract option."
+        exit 1
+    fi
+    
+    BORG_EXTRACT_DIR=$(eval echo "$BORG_EXTRACT_DIR")
+    
+    if [ ! -d "$BORG_EXTRACT_DIR" ]; then
+        echo "Error: BORG_EXTRACT_DIR '$BORG_EXTRACT_DIR' does not exist."
+        exit 1
+    fi
+    
+    echo "Using extraction directory: $BORG_EXTRACT_DIR"
+    export LOCAL_BACKUP_DIR="$BORG_EXTRACT_DIR"
+    
+elif [ "$ARCHIVE_NAME" != "Local" ]; then
     echo "Extracting archive '$ARCHIVE_NAME' from Borg..."
     
     # Ensure Borg is ok with valid repo
@@ -178,8 +197,14 @@ if [ "$ARCHIVE_NAME" != "Local" ]; then
     export BORG_RELOCATED_REPO_ACCESS_IS_OK=yes
     BORG_REPO=$(eval echo "${BORG_REPO:-./borg-repo}")
 
-    # Determine extraction target (defaults to LOCAL_BACKUP_DIR)
-    BORG_EXTRACT_DIR=$(eval echo "${BORG_EXTRACT_DIR:-$LOCAL_BACKUP_DIR}")
+    # BORG_EXTRACT_DIR is required when extracting archives
+    if [ -z "$BORG_EXTRACT_DIR" ]; then
+        echo "Error: BORG_EXTRACT_DIR must be set in .env when extracting Borg archives."
+        echo "Please add BORG_EXTRACT_DIR to your .env file (e.g., BORG_EXTRACT_DIR=\$HOME/backups/supabase/extract)"
+        exit 1
+    fi
+    
+    BORG_EXTRACT_DIR=$(eval echo "$BORG_EXTRACT_DIR")
     
     if [ -d "$BORG_EXTRACT_DIR" ]; then
         echo "Cleaning extraction directory: $BORG_EXTRACT_DIR (to ensure exact match with archive)"

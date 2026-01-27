@@ -69,6 +69,63 @@ def get_borg_archives():
         # Fallback if borg not installed or other error
         return []
 
+def get_local_backup_date():
+    """Get the backup date from LOCAL_BACKUP_DIR by checking database/.timestamp file"""
+    local_dir = os.getenv("LOCAL_BACKUP_DIR", "./backups")
+    local_dir = os.path.expanduser(os.path.expandvars(local_dir))
+    
+    timestamp_file = os.path.join(local_dir, "database", ".timestamp")
+    if os.path.exists(timestamp_file):
+        try:
+            with open(timestamp_file, 'r') as f:
+                timestamp = f.read().strip()
+                dt = datetime.fromisoformat(timestamp)
+                return dt.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            pass
+    
+    # Fallback: check directory modification time
+    if os.path.exists(local_dir):
+        try:
+            mtime = os.path.getmtime(local_dir)
+            dt = datetime.fromtimestamp(mtime)
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            pass
+    
+    return "Unknown Date"
+
+def get_extract_backup_date():
+    """Get the backup date from BORG_EXTRACT_DIR by checking database/.timestamp file"""
+    extract_dir = os.getenv("BORG_EXTRACT_DIR")
+    if not extract_dir:
+        return None
+    
+    extract_dir = os.path.expanduser(os.path.expandvars(extract_dir))
+    
+    if not os.path.exists(extract_dir):
+        return None
+    
+    timestamp_file = os.path.join(extract_dir, "database", ".timestamp")
+    if os.path.exists(timestamp_file):
+        try:
+            with open(timestamp_file, 'r') as f:
+                timestamp = f.read().strip()
+                dt = datetime.fromisoformat(timestamp)
+                return dt.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            pass
+    
+    # Fallback: check directory modification time
+    try:
+        mtime = os.path.getmtime(extract_dir)
+        dt = datetime.fromtimestamp(mtime)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        pass
+    
+    return "Unknown Date"
+
 def main():
     # If called with --calculate-strip, determine output count via stdin
     if "--calculate-strip" in sys.argv:
@@ -79,24 +136,47 @@ def main():
     
     # 1. Select Backup Source
     # Format options
-    # Option 0: Local
-    menu_items = ["[Local] Use existing files in LOCAL_BACKUP_DIR (No extraction)"]
+    menu_items = []
     
-    # Map menu index to archive object
+    # Map menu index to special string values or archive objects
     archive_map = {}
+    current_index = 0
     
+    # Option 0: Local (with date from LOCAL_BACKUP_DIR)
+    local_date = get_local_backup_date()
+    menu_items.append(f"[Local] {local_date} - Use existing files in LOCAL_BACKUP_DIR")
+    archive_map[current_index] = "Local"
+    current_index += 1
+    
+    # Option 1: Extract (with date from BORG_EXTRACT_DIR if exists)
+    extract_date = get_extract_backup_date()
+    if extract_date:
+        menu_items.append(f"[Extract] {extract_date} - Use last extracted from BORG_EXTRACT_DIR")
+        archive_map[current_index] = "Extract"
+        current_index += 1
+    
+    # Borg archives
     for idx, arch in enumerate(archives):
-        # arch keys: archive, time, id
-        # Format time nicely
+        # Parse the timestamp from the archive name (format: YYYY-MM-DD_HH-MM-SS)
+        archive_name = arch['name']
         try:
-            dt = datetime.fromisoformat(arch["time"])
-            time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+            # Try to parse the archive name as a timestamp
+            time_str = archive_name.replace('_', ' ').replace('-', '-', 2).replace('-', ':', 2)
+            # Expected format after replacement: "YYYY-MM-DD HH:MM:SS"
+            dt = datetime.strptime(archive_name, "%Y-%m-%d_%H-%M-%S")
+            time_display = dt.strftime("%Y-%m-%d %H:%M:%S")
         except:
-            time_str = arch["time"]
+            # Fallback to Borg metadata time if name doesn't match expected format
+            try:
+                dt = datetime.fromisoformat(arch["time"])
+                time_display = dt.strftime("%Y-%m-%d %H:%M:%S")
+            except:
+                time_display = arch["time"]
             
-        label = f"[Archive] {time_str} ({arch['name']})"
+        label = f"[Archive] {time_display} - {archive_name}"
         menu_items.append(label)
-        archive_map[idx + 1] = arch # +1 because of Local option at 0
+        archive_map[current_index] = arch
+        current_index += 1
         
     if not archives:
         menu_items.append("[Info] No Borg archives found (Is Borg initialized?)")
@@ -117,9 +197,16 @@ def main():
         # User cancelled
         sys.exit(1)
 
-    selected_archive = None
-    if menu_entry_index > 0:
-        selected_archive = archive_map.get(menu_entry_index)
+    selection = archive_map.get(menu_entry_index)
+    
+    # Determine the archive name to use
+    archive_name = "Local"
+    if isinstance(selection, dict):
+        # It's a Borg archive
+        archive_name = selection["name"]
+    elif isinstance(selection, str):
+        # It's "Local" or "Extract"
+        archive_name = selection
         
     # 2. Select Components (Multi-select)
     components = ["Database", "Storage"]
@@ -147,7 +234,7 @@ def main():
     restore_storage = 1 in selected_components_indexes
     
     output = {
-        "archive": selected_archive["name"] if selected_archive else "Local",
+        "archive": archive_name,
         "restore_db": restore_db,
         "restore_storage": restore_storage
     }
