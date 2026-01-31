@@ -16,13 +16,30 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 # Ensure local node_modules/.bin is in PATH for the supabase CLI
 export PATH="$PWD/node_modules/.bin:$PATH"
 
+# Parse arguments
+ENV_FILE=".env"
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --env-file|-e)
+        ENV_FILE="$2"
+        shift 2
+        ;;
+        *)
+        echo "Unknown argument: $1"
+        echo "Usage: $0 [--env-file|-e <path>]"
+        exit 1
+        ;;
+    esac
+done
+
 # Load environment variables
-if [ -f .env ]; then
+if [ -f "$ENV_FILE" ]; then
     set -a
-    source .env
+    source "$ENV_FILE"
     set +a
 else
-    echo "Error: .env file not found."
+    echo "Error: Environment file '$ENV_FILE' not found."
     exit 1
 fi
 
@@ -100,11 +117,11 @@ mkdir -p "$DUMP_DIR"
 
 # 3. Database Backup (using Supabase CLI via Python script)
 echo "Dumping database..."
-$PYTHON_EXEC database.py backup
+$PYTHON_EXEC database.py backup --env-file "$ENV_FILE"
 
 # 4. Storage Sync (Python script / rclone)
 echo "Syncing storage blocks..."
-$PYTHON_EXEC storage.py backup
+$PYTHON_EXEC storage.py backup --env-file "$ENV_FILE"
 
 # 5. Borg Backup
 echo "Starting Borg backup..."
