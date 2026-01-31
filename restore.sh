@@ -23,16 +23,8 @@ if ! flock -n 200; then
     exit 1
 fi
 
-
-# Configuration
-LOCAL_BACKUP_DIR=$(eval echo "${LOCAL_BACKUP_DIR:-./backups}")
+# Python Virtual Environment path (fixed, not from env)
 VENV_PATH="./venv"
-
-# Ensure backup directory exists
-if [ ! -d "$LOCAL_BACKUP_DIR" ]; then
-    echo "Error: Local backup directory '$LOCAL_BACKUP_DIR' not found."
-    exit 1
-fi
 
 # Ensure Python Virtual Environment is ready (needed for interactive menu)
 if [ ! -d "$VENV_PATH" ]; then
@@ -76,6 +68,15 @@ if [ -f "$ENV_FILE" ]; then
     set +a
 else
     echo "Error: Environment file '$ENV_FILE' not found."
+    exit 1
+fi
+
+# Configuration (must be after env file is loaded)
+LOCAL_BACKUP_DIR=$(eval echo "${LOCAL_BACKUP_DIR:-./backups}")
+
+# Ensure backup directory exists
+if [ ! -d "$LOCAL_BACKUP_DIR" ]; then
+    echo "Error: Local backup directory '$LOCAL_BACKUP_DIR' not found."
     exit 1
 fi
 
