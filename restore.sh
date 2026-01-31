@@ -83,6 +83,7 @@ fi
 # INTERACTIVE SELECTION
 RESTORE_DB=true
 RESTORE_STORAGE=true
+RESTORE_EDGE_FUNCTIONS=true
 ARCHIVE_NAME="Local"
 
 if [ "$SKIP_CONFIRM" = false ]; then
@@ -257,6 +258,14 @@ if [ "$RESTORE_DB" = true ]; then
     $PYTHON_EXEC database.py restore --env-file "$ENV_FILE"
 else
     echo "Skipping database restore."
+fi
+
+# 2.5 Edge Functions Phase
+if [ "$RESTORE_EDGE_FUNCTIONS" = true ]; then
+    echo "--- Phase 2: Restoring Edge Functions ---"
+    $PYTHON_EXEC edge_functions.py restore --env-file "$ENV_FILE"
+else
+    echo "Skipping edge functions restore."
 fi
 
 # 3. Storage Phase

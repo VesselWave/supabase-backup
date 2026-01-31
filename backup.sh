@@ -119,6 +119,10 @@ mkdir -p "$DUMP_DIR"
 echo "Dumping database..."
 $PYTHON_EXEC database.py backup --env-file "$ENV_FILE"
 
+# 3.5 Edge Functions Backup
+echo "Backing up Edge Functions..."
+$PYTHON_EXEC edge_functions.py backup --env-file "$ENV_FILE"
+
 # 4. Storage Sync (Python script / rclone)
 echo "Syncing storage blocks..."
 $PYTHON_EXEC storage.py backup --env-file "$ENV_FILE"

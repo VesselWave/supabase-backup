@@ -5,6 +5,7 @@ A production-ready backup and restore solution for Supabase projects. Handles co
 ## Features
 
 - ✅ **Complete Database Backup** - Roles, schemas, data, and migration history
+- ✅ **Edge Functions Backup** - All functions with JWT verification settings preserved
 - ✅ **Storage Mirroring** - Full bucket synchronization with metadata preservation  
 - ✅ **Interactive Recovery** - Terminal UI for selecting snapshots and components
 - ✅ **Automated Scheduling** - Systemd timers for daily backups and weekly test restores
@@ -165,10 +166,32 @@ systemctl --user start supabase-backup.service
 
 ### Database
 - ✅ All roles and permissions
-- ✅ Complete schema (all tables, views, functions, triggers)
+- ✅ Complete schema (tables, views, RLS policies, RPC functions, triggers)
 - ✅ All data from all tables
 - ✅ Migration history (`supabase_migrations` schema)
 - ✅ Schema diffs for internal Supabase schemas (auth, storage)
+
+### Edge Functions
+- ✅ All deployed edge functions
+- ✅ Function source code
+- ✅ JWT verification settings
+- ✅ Import maps and Deno configs (if present)
+- ⚠️ Secrets must be manually re-added after restore (see below)
+
+#### Re-adding Edge Function Secrets
+
+Edge function secrets (API keys, tokens, etc.) are not accessible via API and cannot be backed up. After restore, re-add them:
+
+```bash
+# List current secrets on source project (names only, values hidden)
+supabase secrets list --project-ref <source-project-ref>
+
+# Set secrets on target project
+supabase secrets set API_KEY=your_value OTHER_SECRET=another_value --project-ref <target-project-ref>
+
+# Or set from a file
+supabase secrets set --env-file .env.secrets --project-ref <target-project-ref>
+```
 
 ### Storage
 - ✅ All files from all buckets
@@ -251,6 +274,10 @@ $HOME/backups/supabase/
 │   │   ├── migrations.sql
 │   │   ├── diffs/
 │   │   └── .timestamp
+│   ├── edge_functions/
+│   │   ├── functions_metadata.json
+│   │   └── <function-name>/
+│   │       └── index.ts
 │   └── storage/
 │       └── <bucket>/
 │           └── <files>
