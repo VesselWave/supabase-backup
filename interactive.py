@@ -209,14 +209,14 @@ def main():
         archive_name = selection
         
     # 2. Select Components (Multi-select)
-    components = ["Database", "Storage"]
-    # Pre-select both (indexes 0 and 1)
+    components = ["Database", "Edge Functions", "Storage"]
+    # Pre-select all (indexes 0, 1, 2)
     component_menu = TerminalMenu(
         components,
         title="Select Components to Restore (Space to toggle, Enter to confirm):",
         multi_select=True,
         show_multi_select_hint=True,
-        preselected_entries=[0, 1],
+        preselected_entries=[0, 1, 2],
         multi_select_select_on_accept=False,
         multi_select_empty_ok=True,
         menu_cursor="> ",
@@ -231,11 +231,13 @@ def main():
         sys.exit(1)
         
     restore_db = 0 in selected_components_indexes
-    restore_storage = 1 in selected_components_indexes
+    restore_edge_functions = 1 in selected_components_indexes
+    restore_storage = 2 in selected_components_indexes
     
     output = {
         "archive": archive_name,
         "restore_db": restore_db,
+        "restore_edge_functions": restore_edge_functions,
         "restore_storage": restore_storage
     }
     

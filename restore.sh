@@ -95,13 +95,15 @@ if [ "$SKIP_CONFIRM" = false ]; then
     
     # Parse JSON (using python one-liner to avoid jq dependency)
     # Parse JSON efficiently in one go
-    read -r ARCHIVE_NAME RESTORE_DB_VAL RESTORE_STORAGE_VAL <<< $(echo "$SELECTION_JSON" | $PYTHON_EXEC -c "import sys, json; d=json.load(sys.stdin); print(d['archive'], d['restore_db'], d['restore_storage'])")
+    read -r ARCHIVE_NAME RESTORE_DB_VAL RESTORE_EDGE_FUNCTIONS_VAL RESTORE_STORAGE_VAL <<< $(echo "$SELECTION_JSON" | $PYTHON_EXEC -c "import sys, json; d=json.load(sys.stdin); print(d['archive'], d['restore_db'], d.get('restore_edge_functions', True), d['restore_storage'])")
     
     if [ "$RESTORE_DB_VAL" == "True" ]; then RESTORE_DB=true; else RESTORE_DB=false; fi
+    if [ "$RESTORE_EDGE_FUNCTIONS_VAL" == "True" ]; then RESTORE_EDGE_FUNCTIONS=true; else RESTORE_EDGE_FUNCTIONS=false; fi
     if [ "$RESTORE_STORAGE_VAL" == "True" ]; then RESTORE_STORAGE=true; else RESTORE_STORAGE=false; fi
     
     echo "Selected Archive: $ARCHIVE_NAME"
     echo "Restore Database: $RESTORE_DB"
+    echo "Restore Edge Functions: $RESTORE_EDGE_FUNCTIONS"
     echo "Restore Storage: $RESTORE_STORAGE"
 fi
 
@@ -177,6 +179,7 @@ echo "  Archive Name: $ARCHIVE_NAME"
 echo "  Target Project: $TARGET_PROJECT_REF"
 echo "  Test Mode: $IS_TEST_MODE"
 echo "  Restore DB: $RESTORE_DB"
+echo "  Restore Edge Functions: $RESTORE_EDGE_FUNCTIONS"
 echo "  Restore Storage: $RESTORE_STORAGE"
 echo "------------------------------------------------"
 
