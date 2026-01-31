@@ -379,10 +379,12 @@ def restore():
         print("Database restore completed.")
 
 if __name__ == "__main__":
-    load_dotenv()
     parser = argparse.ArgumentParser(description="Supabase Database Backup/Restore")
     parser.add_argument("action", choices=["backup", "restore"], help="Action to perform")
+    parser.add_argument("--env-file", "-e", type=str, default=None, help="Path to .env file (default: .env in current directory)")
     args = parser.parse_args()
+
+    load_dotenv(dotenv_path=args.env_file)
 
     if args.action == "backup":
         backup()

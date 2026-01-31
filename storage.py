@@ -376,11 +376,13 @@ async def restore(concurrency: int):
                 await migrator.wipe_bucket(bucket_name, source_dir, concurrency) 
 
 if __name__ == "__main__":
-    load_dotenv()
     parser = argparse.ArgumentParser(description="Supabase Storage Backup/Restore (API based)")
     parser.add_argument("action", choices=["backup", "restore"], help="Action to perform")
     parser.add_argument("--concurrency", "-c", type=int, default=10, help="Number of concurrent transfers (default: 10)")
+    parser.add_argument("--env-file", "-e", type=str, default=None, help="Path to .env file (default: .env in current directory)")
     args = parser.parse_args()
+
+    load_dotenv(dotenv_path=args.env_file)
 
     if args.action == "backup":
         asyncio.run(backup(args.concurrency))
