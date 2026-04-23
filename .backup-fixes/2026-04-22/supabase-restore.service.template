@@ -4,7 +4,6 @@ After=network.target
 
 [Service]
 Type=oneshot
-TimeoutStartSec=4h
 WorkingDirectory=${INSTALL_DIR}
 ExecStart=/usr/bin/env bash -c "${INSTALL_DIR}/restore.sh --test --yes"
 

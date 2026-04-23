@@ -4,11 +4,10 @@ After=network.target
 
 [Service]
 Type=oneshot
-TimeoutStartSec=4h
 # Project directory
-WorkingDirectory=${INSTALL_DIR}
+WorkingDirectory=/home/user/repos/supabase-backup
 # Run the script and pipe output to log file in the project directory
-ExecStart=/usr/bin/env bash -c "${INSTALL_DIR}/backup.sh"
+ExecStart=/usr/bin/env bash -c "/home/user/repos/supabase-backup/backup.sh"
 
 [Install]
 WantedBy=default.target

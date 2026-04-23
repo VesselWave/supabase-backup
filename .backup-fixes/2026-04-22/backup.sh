@@ -56,11 +56,11 @@ export BORG_RELOCATED_REPO_ACCESS_IS_OK=yes
 
 # Configuration
 # Expand variables like $HOME or ~ if they exist in the strings
-FINAL_BACKUP_DIR="${LOCAL_BACKUP_DIR:-./backups}"
-if [[ "$FINAL_BACKUP_DIR" == "~"* ]]; then
-    FINAL_BACKUP_DIR="${FINAL_BACKUP_DIR/#\~/$HOME}"
+LOCAL_BACKUP_DIR="${LOCAL_BACKUP_DIR:-./backups}"
+if [[ "$LOCAL_BACKUP_DIR" == "~"* ]]; then
+    LOCAL_BACKUP_DIR="${LOCAL_BACKUP_DIR/#\~/$HOME}"
 fi
-DUMP_DIR="$FINAL_BACKUP_DIR"
+DUMP_DIR="$LOCAL_BACKUP_DIR"
 BORG_REPO="${BORG_REPO:-./borg-repo}"
 if [[ "$BORG_REPO" == "~"* ]]; then
     BORG_REPO="${BORG_REPO/#\~/$HOME}"
@@ -68,24 +68,8 @@ fi
 RETENTION_DAYS="${BORG_RETENTION_DAYS:-21}"
 TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
 VENV_PATH="./venv"
-export COMMAND_TIMEOUT_SEC="${COMMAND_TIMEOUT_SEC:-7200}"
 
-BACKUP_PARENT_DIR="$(dirname "$FINAL_BACKUP_DIR")"
-mkdir -p "$BACKUP_PARENT_DIR"
-STAGING_BACKUP_DIR="$(mktemp -d "$BACKUP_PARENT_DIR/.supabase-backup-${TIMESTAMP}.XXXXXX")"
-
-cleanup() {
-    local exit_code=$?
-    trap - EXIT
-    if [ -n "$STAGING_BACKUP_DIR" ] && [ -d "$STAGING_BACKUP_DIR" ]; then
-        rm -rf "$STAGING_BACKUP_DIR"
-    fi
-    exit "$exit_code"
-}
-trap cleanup EXIT
-
-# Child scripts write into staging. Promote to latest only after full success.
-export LOCAL_BACKUP_DIR="$STAGING_BACKUP_DIR"
+# Ensure backup directory exists
 mkdir -p "$LOCAL_BACKUP_DIR"
 
 # Check dependencies
@@ -96,12 +80,8 @@ if [ ! -x "./node_modules/.bin/supabase" ]; then
 fi
 
 command -v borg >/dev/null 2>&1 || { echo >&2 "Error: 'borg' is required but not installed. Aborting."; exit 1; }
-command -v rsync >/dev/null 2>&1 || { echo >&2 "Error: 'rsync' is required but not installed. Aborting."; exit 1; }
 
 echo "--- Starting Supabase Backup: $TIMESTAMP ---"
-echo "Command timeout: ${COMMAND_TIMEOUT_SEC}s"
-echo "Staging backup dir: $STAGING_BACKUP_DIR"
-echo "Final backup dir: $FINAL_BACKUP_DIR"
 
 # Enforce Container Runtime (Podman or Docker)
 if command -v podman >/dev/null 2>&1; then
@@ -133,7 +113,7 @@ fi
 PYTHON_EXEC="$VENV_PATH/bin/python3"
 
 # 2. Prepare dump directory
-mkdir -p "$LOCAL_BACKUP_DIR"
+mkdir -p "$DUMP_DIR"
 
 # 3. Database Backup (using Supabase CLI via Python script)
 echo "Dumping database..."
@@ -146,12 +126,6 @@ $PYTHON_EXEC edge_functions.py backup --env-file "$ENV_FILE"
 # 4. Storage Sync (Python script / rclone)
 echo "Syncing storage blocks..."
 $PYTHON_EXEC storage.py backup --env-file "$ENV_FILE"
-
-# Promote staged backup only after all backup phases succeed
-echo "Promoting staged backup to $FINAL_BACKUP_DIR..."
-mkdir -p "$FINAL_BACKUP_DIR"
-rsync -a --delete "$STAGING_BACKUP_DIR"/ "$FINAL_BACKUP_DIR"/
-export LOCAL_BACKUP_DIR="$FINAL_BACKUP_DIR"
 
 # 5. Borg Backup
 echo "Starting Borg backup..."

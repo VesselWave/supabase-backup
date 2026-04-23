@@ -3,7 +3,6 @@ set -e
 
 # Prioritize local node_modules/.bin
 export PATH="$PWD/node_modules/.bin:$PATH"
-export COMMAND_TIMEOUT_SEC="${COMMAND_TIMEOUT_SEC:-7200}"
 
 # Logging configuration
 LOG_DIR="$HOME/.config/supabase-backup/logs"

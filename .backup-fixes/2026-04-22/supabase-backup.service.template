@@ -4,7 +4,6 @@ After=network.target
 
 [Service]
 Type=oneshot
-TimeoutStartSec=4h
 # Project directory
 WorkingDirectory=${INSTALL_DIR}
 # Run the script and pipe output to log file in the project directory

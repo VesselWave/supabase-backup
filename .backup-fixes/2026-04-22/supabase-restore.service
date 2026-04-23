@@ -1,0 +1,11 @@
+[Unit]
+Description=Supabase Restore to Test Environment
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/user/repos/supabase-backup
+ExecStart=/usr/bin/env bash -c "/home/user/repos/supabase-backup/restore.sh --test --yes"
+
+[Install]
+WantedBy=default.target
