@@ -103,6 +103,82 @@ echo "Command timeout: ${COMMAND_TIMEOUT_SEC}s"
 echo "Staging backup dir: $STAGING_BACKUP_DIR"
 echo "Final backup dir: $FINAL_BACKUP_DIR"
 
+ensure_podman_file_log_driver() {
+    # Supabase CLI streams pg_dump output through Docker/Podman logs. Podman's
+    # journald driver truncates large log records, which can cut schema.sql and
+    # leave the CLI stuck following logs forever. Force file-backed logs for
+    # containers created through the Podman Docker API.
+    local current_driver
+    current_driver="$(podman info --format '{{.Host.LogDriver}}' 2>/dev/null || true)"
+    if [ "$current_driver" = "k8s-file" ]; then
+        return 0
+    fi
+
+    local containers_conf_dir="$HOME/.config/containers"
+    local containers_conf="$containers_conf_dir/containers.conf"
+    mkdir -p "$containers_conf_dir"
+
+    if [ -f "$containers_conf" ]; then
+        cp "$containers_conf" "$containers_conf.bak.$(date +%Y%m%d%H%M%S)"
+    fi
+
+    python3 - "$containers_conf" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text() if path.exists() else ""
+lines = text.splitlines()
+out = []
+in_containers = False
+seen_containers = False
+set_driver = False
+
+for line in lines:
+    section = re.match(r"\s*\[([^]]+)\]\s*$", line)
+    if section:
+        if in_containers and not set_driver:
+            out.append('log_driver = "k8s-file"')
+            set_driver = True
+        in_containers = section.group(1).strip() == "containers"
+        seen_containers = seen_containers or in_containers
+        out.append(line)
+        continue
+
+    if in_containers and re.match(r"\s*log_driver\s*=", line):
+        if not set_driver:
+            out.append('log_driver = "k8s-file"')
+            set_driver = True
+        else:
+            out.append("# " + line)
+        continue
+
+    out.append(line)
+
+if in_containers and not set_driver:
+    out.append('log_driver = "k8s-file"')
+elif not seen_containers:
+    if out and out[-1].strip():
+        out.append("")
+    out.extend(["[containers]", 'log_driver = "k8s-file"'])
+
+path.write_text("\n".join(out) + "\n")
+PY
+
+    # If the user Podman API service is already running, restart it so it reads
+    # the updated containers.conf before Supabase CLI creates dump containers.
+    systemctl --user restart podman.socket 2>/dev/null || true
+    systemctl --user try-restart podman.service 2>/dev/null || true
+
+    current_driver="$(podman info --format '{{.Host.LogDriver}}' 2>/dev/null || true)"
+    if [ "$current_driver" != "k8s-file" ]; then
+        echo "Error: Podman log driver is '$current_driver', expected 'k8s-file'." >&2
+        echo "Supabase database dumps may hang with Podman's journald log driver." >&2
+        exit 1
+    fi
+}
+
 # Enforce Container Runtime (Podman or Docker)
 if command -v podman >/dev/null 2>&1; then
     # Default to Podman if available
@@ -110,7 +186,8 @@ if command -v podman >/dev/null 2>&1; then
     if [ -z "$DOCKER_HOST" ]; then
         export DOCKER_HOST="unix:///run/user/$(id -u)/podman/podman.sock"
     fi
-     echo "Using Podman at $DOCKER_HOST"
+    ensure_podman_file_log_driver
+    echo "Using Podman at $DOCKER_HOST"
 elif command -v docker >/dev/null 2>&1; then
     # Fallback to Docker
     echo "Using Docker (Podman not found)"
